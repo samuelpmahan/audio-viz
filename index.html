@@ -113,6 +113,8 @@
         import { ParticleTunnel } from './vortex-viz.js';
         import { JoyViz } from './joy-viz.js';
         import { ConstellationViz } from './constellation-viz.js'
+        import { CrystalViz } from './crystal-viz.js'
+        import { CrystalViz2 } from './crystal2-viz.js'
 
         const engine = new AudioAnalyzer();
         let currentViz = null;
@@ -150,7 +152,7 @@
             e.stopPropagation(); // Stop click from hitting window
 
             vizIndex++;
-            if (vizIndex > 2) vizIndex = 0;
+            if (vizIndex > 4) vizIndex = 0;
 
             try {
                 if (vizIndex === 0) {
@@ -159,8 +161,14 @@
                 } else if (vizIndex === 1) {
                     currentViz = new JoyViz();
                     switchBtn.innerText = "SWITCH TO CONSTELLATION";
-                } else {
+                } else if (vizIndex === 2) {
                     currentViz = new ConstellationViz();
+                    switchBtn.innerText = "SWITCH TO CRYSTAL";
+                } else if (vizIndex === 3) {
+                    currentViz = new CrystalViz();
+                    switchBtn.innerText = "SWITCH TO CRYSTAL2";
+                } else {
+                    currentViz = new CrystalViz2();
                     switchBtn.innerText = "SWITCH TO VORTEX";
                 }
                 
