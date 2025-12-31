@@ -24,6 +24,17 @@ export class ConstellationViz {
         this.particles = [];
         this.time = 0;
         
+        // Color palette that shifts over time
+        this.palettePhase = 0;
+        
+        // Randomized rotation direction
+        this.rotationAxis = new THREE.Vector3(
+            Math.random() - 0.5,
+            Math.random() - 0.5,
+            Math.random() - 0.5
+        ).normalize();
+        this.rotationSpeed = 0.05 + Math.random() * 0.1;
+        
         this.initParticles();
         this.initConnections();
 
@@ -31,15 +42,17 @@ export class ConstellationViz {
     }
 
     initParticles() {
-        // Create particles in a sphere around the center
-        const geometry = new THREE.SphereGeometry(0.3, 8, 8);
-        
         for (let i = 0; i < this.PARTICLE_COUNT; i++) {
             // Distribute particles in 3D space
             const theta = Math.random() * Math.PI * 2;
             const phi = Math.acos(2 * Math.random() - 1);
             const radius = 20 + Math.random() * 20;
             
+            // Varying particle sizes based on frequency band
+            const freqBand = Math.floor(i / (this.PARTICLE_COUNT / this.FREQ_BANDS));
+            const baseSize = 0.2 + (freqBand / this.FREQ_BANDS) * 0.4; // Low freq = smaller, high freq = bigger
+            
+            const geometry = new THREE.SphereGeometry(baseSize, 8, 8);
             const material = new THREE.MeshBasicMaterial({
                 color: new THREE.Color().setHSL(Math.random() * 0.3 + 0.5, 0.8, 0.6),
                 transparent: true,
@@ -65,8 +78,9 @@ export class ConstellationViz {
                     (Math.random() - 0.5) * 0.02,
                     (Math.random() - 0.5) * 0.02
                 ),
-                freqBand: Math.floor(i / (this.PARTICLE_COUNT / this.FREQ_BANDS)),
-                phase: Math.random() * Math.PI * 2
+                freqBand,
+                phase: Math.random() * Math.PI * 2,
+                baseSize
             });
         }
     }
@@ -98,8 +112,43 @@ export class ConstellationViz {
         this.scene.add(this.connectionLines);
     }
 
+    getPaletteColor(t, audioIntensity) {
+        // Shift through different color palettes over time
+        // t is a value that slowly increases, creating palette transitions
+        const paletteIndex = Math.floor(t / 20) % 4; // Change palette every 20 time units
+        const blend = (t % 20) / 20; // Smooth blend between palettes
+        
+        let hue, sat, light;
+        
+        switch(paletteIndex) {
+            case 0: // Cool blues and cyans
+                hue = 0.5 + audioIntensity * 0.15;
+                sat = 0.8;
+                light = 0.5 + audioIntensity * 0.3;
+                break;
+            case 1: // Purples and magentas
+                hue = 0.75 + audioIntensity * 0.15;
+                sat = 0.9;
+                light = 0.5 + audioIntensity * 0.25;
+                break;
+            case 2: // Warm oranges and reds
+                hue = 0.05 + audioIntensity * 0.1;
+                sat = 0.85;
+                light = 0.55 + audioIntensity * 0.2;
+                break;
+            case 3: // Greens and teals
+                hue = 0.35 + audioIntensity * 0.15;
+                sat = 0.75;
+                light = 0.5 + audioIntensity * 0.3;
+                break;
+        }
+        
+        return { h: hue, s: sat, l: light };
+    }
+
     animate(metrics, rawData) {
         this.time += 0.01;
+        this.palettePhase += 0.02;
         
         // Split audio data into frequency bands
         const bandSize = Math.floor(rawData.length / this.FREQ_BANDS);
@@ -118,8 +167,9 @@ export class ConstellationViz {
             const p = this.particles[i];
             const audioIntensity = bands[p.freqBand];
             
-            // Pulse effect based on audio
-            const scale = 1 + audioIntensity * 2;
+            // Pulse effect based on audio - size varies by frequency band
+            const sizeMultiplier = 1 + (p.freqBand / this.FREQ_BANDS) * 0.5; // Higher freq = bigger pulses
+            const scale = 1 + audioIntensity * 2 * sizeMultiplier;
             p.mesh.scale.setScalar(scale);
             
             // Update particle position with gentle motion
@@ -142,18 +192,20 @@ export class ConstellationViz {
             const wave = Math.sin(this.time * 2 + p.phase) * audioIntensity * 3;
             p.mesh.position.y += wave;
             
-            // Update color based on audio intensity
-            const hue = 0.5 + audioIntensity * 0.3;
-            p.mesh.material.color.setHSL(hue, 0.8, 0.5 + audioIntensity * 0.3);
+            // Update color with shifting palette
+            const color = this.getPaletteColor(this.palettePhase + p.phase, audioIntensity);
+            p.mesh.material.color.setHSL(color.h, color.s, color.l);
             p.mesh.material.opacity = 0.6 + audioIntensity * 0.4;
         }
         
         // Update connections between nearby particles
         this.updateConnections();
         
-        // Rotate camera slowly
-        this.camera.position.x = Math.sin(this.time * 0.1) * 50;
-        this.camera.position.z = Math.cos(this.time * 0.1) * 50;
+        // Rotate camera along randomized axis
+        const angle = this.time * this.rotationSpeed;
+        this.camera.position.x = Math.cos(angle) * 50 * this.rotationAxis.x + Math.sin(angle) * 50 * this.rotationAxis.z;
+        this.camera.position.y = 50 * this.rotationAxis.y + Math.sin(angle * 0.5) * 20;
+        this.camera.position.z = Math.sin(angle) * 50 * this.rotationAxis.x + Math.cos(angle) * 50 * this.rotationAxis.z;
         this.camera.lookAt(0, 0, 0);
         
         this.renderer.render(this.scene, this.camera);
