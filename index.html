@@ -57,15 +57,19 @@
         #bass-fill { background: #ff0055; } 
         #mid-fill { background: #ffdd00; }  
         #treble-fill { background: #00e5ff; } 
-        #wub-fill { background: #a020f0; }    
-
+        #wub-fill { background: #a020f0; }
+        
         #beat-indicator {
-            width: 100px; height: 100px; background: #222; border-radius: 50%;
-            margin-top: 20px; border: 2px solid #555;
+            width: 80px; height: 80px; background: #222; border-radius: 50%;
+            border: 2px solid #555;
             display: flex; align-items: center; justify-content: center;
-            font-size: 20px; color: white;
+            font-size: 16px; color: white; margin: 10px;
         }
-        .hit { background: #fff !important; box-shadow: 0 0 50px white; color: black !important; }
+        
+        .beat-row { display: flex; justify-content: center; margin-top: 20px; }
+        
+        .hit { background: #fff !important; box-shadow: 0 0 30px white; color: black !important; }
+        .snare-hit { background: #ffdd00 !important; box-shadow: 0 0 30px #ffdd00; color: black !important; }
 
         button { padding: 15px 30px; font-size: 18px; cursor: pointer; margin-bottom: 20px; background: #0f0; border: none; font-weight: bold;}
         button:hover { background: #fff; }
@@ -102,7 +106,10 @@
                 <div class="meter-container"><div class="label">WUB (Centroid)</div><div class="bar-bg"><div id="wub-fill" class="bar-fill"></div></div></div>
             </div>
 
-            <div id="beat-indicator">KICK</div>
+            <div class="beat-row">
+                <div id="kick-indicator">KICK</div>
+                <div id="snare-indicator">SNARE</div>
+            </div>
 
             <button id="switch-btn">ENTER VORTEX</button>
         </div>
@@ -111,6 +118,7 @@
     <script type="module">
         import { AudioAnalyzer } from './audio-engine.js';
         import { ParticleTunnel } from './vortex-viz.js';
+        import { ParticleTunnel2 } from './vortex2-viz.js';
         import { JoyViz } from './joy-viz.js';
         import { ConstellationViz } from './constellation-viz.js'
         import { CrystalViz } from './crystal-viz.js'
@@ -131,6 +139,8 @@
         const elTreble = document.getElementById('treble-fill');
         const elWub = document.getElementById('wub-fill');
         const elBeat = document.getElementById('beat-indicator');
+        const elKick = document.getElementById('kick-indicator');
+        const elSnare = document.getElementById('snare-indicator');
 
         // 1. INIT
         startBtn.addEventListener('click', async () => {
@@ -152,7 +162,7 @@
             e.stopPropagation(); // Stop click from hitting window
 
             vizIndex++;
-            if (vizIndex > 4) vizIndex = 0;
+            if (vizIndex > 5) vizIndex = 0;
 
             try {
                 if (vizIndex === 0) {
@@ -167,8 +177,11 @@
                 } else if (vizIndex === 3) {
                     currentViz = new CrystalViz();
                     switchBtn.innerText = "SWITCH TO CRYSTAL2";
-                } else {
+                } else if (vizIndex === 4) {
                     currentViz = new CrystalViz2();
+                    switchBtn.innerText = "SWITCH TO VORTEX2";
+                } else {
+                    currentViz = new ParticleTunnel2();
                     switchBtn.innerText = "SWITCH TO VORTEX";
                 }
                 
@@ -207,7 +220,12 @@
             elMid.style.width = `${m.mid * 100}%`;
             elTreble.style.width = `${m.treble * 100}%`;
             elWub.style.width = `${m.centroid * 100}%`;
-            if (m.hit) elBeat.classList.add('hit'); else elBeat.classList.remove('hit');
+            if (m.isKick) elKick.classList.add('hit');
+            else elKick.classList.remove('hit');
+
+            // SNARE VIZ
+            if (m.isSnare) elSnare.classList.add('snare-hit');
+            else elSnare.classList.remove('snare-hit');
 
             // VIZ
             if (currentViz) currentViz.animate(m, raw);
