@@ -1,45 +1,38 @@
+import Meyda from 'meyda';
+
 export class AudioAnalyzer {
     constructor() {
         this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         
+        // Main volume control
         this.gainNode = this.ctx.createGain();
         this.gainNode.gain.value = 2.5; 
         
+        // Standard Analyser (Kept for 'getRawData' visual compatibility)
         this.analyser = this.ctx.createAnalyser();
         this.analyser.fftSize = 2048; 
-        this.analyser.smoothingTimeConstant = 0.4; // Reduced for better transient response
-        
+        this.analyser.smoothingTimeConstant = 0.4;
         this.bufferLength = this.analyser.frequencyBinCount;
         this.dataArray = new Uint8Array(this.bufferLength);
         
-        this.bands = { bass: 0, lowMid: 0, mid: 0, highMid: 0, treble: 0 };
-        this.level = 0;
-        this.centroid = 0;
+        // Internal State
+        this.isInit = false;
+        this.meydaAnalyzer = null;
         
-        // Track energy history for onset detection
-        this.history = {
-            bass: [0, 0, 0],
-            lowMid: [0, 0, 0],
-            mid: [0, 0, 0]
-        };
+        // Adaptive Thresholding State
+        this.avgFlux = 0;
+        this.fluxThreshold = 0;
+        this.avgVol = 0;
         
-        // Kick detection
-        this.kick = {
-            detected: false,
-            energy: 0,
-            threshold: 0.25,
-            lastTriggerTime: 0,
-            minInterval: 150 // ms between kicks
-        };
-
-        // Snare detection
-        this.snare = {
-            detected: false,
-            energy: 0,
-            threshold: 0.22,
-            lastTriggerTime: 0,
-            minInterval: 120, // ms between snares
-            kickLockout: 100 // ms after kick before snare can trigger
+        // Beat Detection Locks
+        this.kick = { detected: false, lastTime: 0 };
+        this.snare = { detected: false, lastTime: 0 };
+        
+        // Output Metrics (The public API)
+        this.metrics = {
+            bass: 0, mid: 0, treble: 0,
+            vol: 0, centroid: 0,
+            isKick: false, isSnare: false
         };
     }
 
@@ -49,9 +42,32 @@ export class AudioAnalyzer {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             const source = this.ctx.createMediaStreamSource(stream);
+            
+            // Connect Graph: Source -> Gain -> Analyser -> Destination
             source.connect(this.gainNode);
             this.gainNode.connect(this.analyser);
-            console.log("🔊 Titan Engine V5 (Onset Detection) Initialized");
+            
+            // --- MEYDA SETUP ---
+            // We use 512 for faster transient detection, while the main analyser uses 2048 for detailed visuals
+            this.meydaAnalyzer = Meyda.createMeydaAnalyzer({
+                "audioContext": this.ctx,
+                "source": this.gainNode,
+                "bufferSize": 512,
+                "featureExtractors": [
+                    "rms",              // Volume
+                    "spectralCentroid", // Brightness (Bass vs Snare discrimination)
+                    "spectralFlux",     // Onset/Transient detection (The "Change" over time)
+                    "melBands"          // Perceptual Frequency Bands (Better than linear FFT)
+                ],
+                "callback": (features) => {
+                    // Meyda doesn't need a callback here since we pull data in update()
+                    // But we can use this for debug if needed.
+                }
+            });
+            this.meydaAnalyzer.start();
+
+            this.isInit = true;
+            console.log("🔊 Titan Engine V6 (Meyda Hybrid) Initialized");
         } catch (e) {
             console.error("Mic access denied", e);
         }
@@ -61,129 +77,87 @@ export class AudioAnalyzer {
         if(this.gainNode) this.gainNode.gain.value = val;
     }
 
+    // Used by JoyViz, CrystalViz for drawing raw lines
     getRawData() {
         return this.dataArray;
     }
 
     update() {
-        if (!this.analyser) return;
+        if (!this.isInit || !this.meydaAnalyzer) return;
 
+        // 1. Legacy Data (for visualizers that draw lines)
         this.analyser.getByteFrequencyData(this.dataArray);
 
-        let sumBass = 0, sumLowMid = 0, sumMid = 0, sumHighMid = 0, sumTreble = 0, total = 0;
-        let weightedSum = 0;
-        
-        // Frequency bands (at 44.1kHz, bin width ~21.5Hz)
-        // Bass: 0-100Hz (bins 0-5) - kick fundamental
-        // LowMid: 100-250Hz (bins 5-12) - kick body/punch
-        // Mid: 250-1000Hz (bins 12-47) - snare body
-        // HighMid: 1000-4000Hz (bins 47-186) - snare crack/clap brightness
-        // Treble: 4000Hz+ - cymbals/air
-        
-        const bassEnd = 5;
-        const lowMidEnd = 12;
-        const midEnd = 47;
-        const highMidEnd = 186;
-        
-        for (let i = 0; i < this.bufferLength; i++) {
-            const val = this.dataArray[i] / 255.0;
-            total += val;
-            weightedSum += i * val;
-
-            if (i <= bassEnd) sumBass += val;
-            else if (i <= lowMidEnd) sumLowMid += val;
-            else if (i <= midEnd) sumMid += val;
-            else if (i <= highMidEnd) sumHighMid += val;
-            else sumTreble += val;
-        }
-
-        // Calculate normalized band levels
-        this.bands.bass = sumBass / (bassEnd + 1); 
-        this.bands.lowMid = sumLowMid / (lowMidEnd - bassEnd); 
-        this.bands.mid = sumMid / (midEnd - lowMidEnd); 
-        this.bands.highMid = sumHighMid / (highMidEnd - midEnd);
-        this.bands.treble = sumTreble / (this.bufferLength - highMidEnd);
-        this.level = total / this.bufferLength;
-        this.centroid = total > 0 ? (weightedSum / total) / (this.bufferLength / 2) : 0;
+        // 2. Get SOTA Features from Meyda
+        const features = this.meydaAnalyzer.get();
+        if(!features) return;
 
         const now = performance.now();
 
-        // === KICK DETECTION ===
-        // Kick signature: strong bass + lowMid, sudden onset, low spectral centroid
-        const kickEnergy = (this.bands.bass * 1.5) + this.bands.lowMid; // Weight bass more
+        // --- ENHANCEMENT 1: MEL BANDS ---
+        // Meyda gives us ~24-40 bands tailored to human hearing.
+        // We aggregate them into 3 simple groups for the visualizer.
+        // Mel Bands are usually 0-40. We assume 40 bands here.
         
-        // Calculate onset (difference from recent average)
-        const kickHistory = this.history.bass;
-        const kickAvg = (kickHistory[0] + kickHistory[1] + kickHistory[2]) / 3;
-        const kickOnset = Math.max(0, kickEnergy - kickAvg);
-        
-        this.kick.detected = false;
-        let kickTriggered = false;
-        
-        if (now - this.kick.lastTriggerTime > this.kick.minInterval) {
-            // Require: strong onset, high absolute energy, dark sound
-            if (kickOnset > 0.15 && 
-                kickEnergy > this.kick.threshold &&
-                this.centroid < 0.40) {
-                
-                this.kick.detected = true;
-                this.kick.lastTriggerTime = now;
-                kickTriggered = true;
-            }
-        }
-        
-        // Update history
-        kickHistory.shift();
-        kickHistory.push(kickEnergy);
+        const m = features.melBands;
+        // Bass: Bottom 20% of bands (Sub & Punch)
+        const bassSum = m.slice(0, 4).reduce((a,b)=>a+b, 0) / 4;
+        // Mid: Next 30% (Vocals/Snare)
+        const midSum = m.slice(4, 15).reduce((a,b)=>a+b, 0) / 11;
+        // Treble: Top 50% (Hats/Air)
+        const trebleSum = m.slice(15).reduce((a,b)=>a+b, 0) / (m.length - 15);
 
-        // === SNARE DETECTION ===
-        // Snare signature: strong mid + highMid, sudden onset, bright spectral centroid
-        const snareEnergy = this.bands.mid + (this.bands.highMid * 1.3); // Weight brightness
+        // Normalize (Mel bands can be unbounded, but usually 0-50 range)
+        // We dampen them slightly to fit 0-1 range better
+        this.metrics.bass = Math.min(1, bassSum / 30);
+        this.metrics.mid = Math.min(1, midSum / 20);
+        this.metrics.treble = Math.min(1, trebleSum / 10);
         
-        // Calculate onset
-        const snareHistory = this.history.mid;
-        const snareAvg = (snareHistory[0] + snareHistory[1] + snareHistory[2]) / 3;
-        const snareOnset = Math.max(0, snareEnergy - snareAvg);
+        this.metrics.vol = features.rms;
+        // Normalize centroid (Nyquist is ~22050Hz). 
+        // 0.0 - 0.2 = Bass heavy
+        // 0.2 - 0.5 = Balanced
+        // 0.5+ = High frequency noise
+        this.metrics.centroid = Math.min(1, features.spectralCentroid / 100);
+
+        // --- ENHANCEMENT 2 & 3: ADAPTIVE FLUX THRESHOLD ---
+        // Spectral Flux measures "How much did the spectrum change?"
+        // We compare current Flux to the Running Average Flux.
         
-        this.snare.detected = false;
-        
-        // Check both snare interval AND kick lockout
-        const timeSinceKick = now - this.kick.lastTriggerTime;
-        const timeSinceSnare = now - this.snare.lastTriggerTime;
-        
-        if (timeSinceSnare > this.snare.minInterval && 
-            timeSinceKick > this.snare.kickLockout &&
-            !kickTriggered) { // Kick wins if both would trigger
+        // 1. Update Average (Slow learning)
+        this.avgFlux = (this.avgFlux * 0.96) + (features.spectralFlux * 0.04);
+        this.avgVol = (this.avgVol * 0.99) + (features.rms * 0.01);
+
+        // 2. Calculate Dynamic Threshold
+        // If the song is quiet, threshold drops. If chaotic, it rises.
+        // Multiplier 1.5 means "50% more change than average"
+        const currentThreshold = Math.max(0.5, this.avgFlux * 1.5);
+
+        this.metrics.isKick = false;
+        this.metrics.isSnare = false;
+
+        // 3. Trigger Logic
+        if (features.spectralFlux > currentThreshold) {
             
-            // Require: strong onset, high absolute energy, BRIGHT sound (claps are very bright)
-            if (snareOnset > 0.12 && 
-                snareEnergy > this.snare.threshold &&
-                this.centroid > 0.40 && // Raised from 0.30
-                this.centroid < 0.85 &&
-                kickEnergy < snareEnergy * 0.8) { // Kick must be relatively quiet
-                
-                this.snare.detected = true;
-                this.snare.lastTriggerTime = now;
+            // Discrimination Logic: KICK vs SNARE
+            // Low Centroid = Kick. High Centroid = Snare.
+            
+            // KICK CHECK
+            if (this.metrics.centroid < 0.35 && (now - this.kick.lastTime > 150)) {
+                this.metrics.isKick = true;
+                this.kick.lastTime = now;
+            }
+            
+            // SNARE CHECK
+            // Snares are brighter (higher centroid) and often have less sub-bass
+            else if (this.metrics.centroid > 0.35 && (now - this.snare.lastTime > 100)) {
+                this.metrics.isSnare = true;
+                this.snare.lastTime = now;
             }
         }
-        
-        // Update history
-        snareHistory.shift();
-        snareHistory.push(snareEnergy);
     }
 
     getMetrics() {
-        return {
-            bass: this.bands.bass,
-            mid: this.bands.mid,
-            treble: this.bands.treble,
-            vol: this.level,
-            centroid: this.centroid,
-            isKick: this.kick.detected, 
-            isSnare: this.snare.detected,
-            // Debug info
-            kickEnergy: (this.bands.bass * 1.5) + this.bands.lowMid,
-            snareEnergy: this.bands.mid + (this.bands.highMid * 1.3)
-        };
+        return this.metrics;
     }
 }
