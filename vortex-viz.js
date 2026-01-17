@@ -113,7 +113,7 @@ export class ParticleTunnel {
         this.particles.material.color.setHSL(metrics.centroid * 0.8, 1.0, 0.5); 
         
         // Shake on KICK
-        if (metrics.hit) {
+        if (metrics.isKick) {
             this.camera.position.x = (Math.random() - 0.5) * 2;
             this.camera.position.y = (Math.random() - 0.5) * 2;
             this.particles.material.size = 3.0; 
@@ -128,7 +128,7 @@ export class ParticleTunnel {
         this.bloomPass.strength = 1.2 + (metrics.bass * 0.5);
 
         // RGB Glitch on Beat
-        if (metrics.hit) {
+        if (metrics.isKick) {
             this.rgbShiftPass.uniforms['amount'].value = 0.02; 
         } else {
             this.rgbShiftPass.uniforms['amount'].value += (0.002 - this.rgbShiftPass.uniforms['amount'].value) * 0.1;
