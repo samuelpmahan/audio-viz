@@ -507,18 +507,31 @@ export class HotelCalifornia {
         this.dustBuildUp = Math.min(1.0, metrics.bassTime / 3000);
         
         const dustPos = this.desertDust.geometry.attributes.position.array;
-        const dustSpeed = roadSpeed * 0.5;
-        const windGust = this.midImpulse * 10; // Mid hits create wind
-        const dustStorm = this.bassImpulse * this.dustBuildUp * 20; // Anticipated bass = storm
+        
+        // 1. INCREASE FORWARD SPEED slightly so it feels faster
+        const dustSpeed = roadSpeed * 0.8; 
+        
+        // 2. REDUCE SIDE WIND (Was * 10, now * 0.2)
+        // This prevents them from flying off the side of the screen
+        const windGust = this.midImpulse * 0.2; 
+        
+        const dustStorm = this.bassImpulse * this.dustBuildUp * 20; 
         
         for (let i = 0; i < dustPos.length; i += 3) {
+            // MOVE FORWARD (Z-Axis)
             dustPos[i + 2] += dustSpeed + dustStorm;
+            
+            // SIDEWAYS SWAY (X-Axis) - Now subtle
             dustPos[i] += Math.sin(this.time * 0.5 + i) * 0.2 + windGust;
+            
+            // VERTICAL BOB (Y-Axis)
             dustPos[i + 1] += Math.cos(this.time * 0.3 + i) * 0.1;
             
+            // INFINITE LOOP RESET
+            // If it passes the camera (Z > 200), send it to the back
             if (dustPos[i + 2] > 200) {
-                dustPos[i + 2] = -500 - Math.random() * 1000;
-                dustPos[i] = (Math.random() - 0.5) * 1000;
+                dustPos[i + 2] = -1000 - Math.random() * 500; // Reset deep in back
+                dustPos[i] = (Math.random() - 0.5) * 1000;    // Randomize X again
             }
         }
         this.desertDust.geometry.attributes.position.needsUpdate = true;
