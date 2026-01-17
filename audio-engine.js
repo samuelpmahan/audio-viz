@@ -104,13 +104,10 @@ export class AudioAnalyzer {
 
         // --- METRICS ---
         
-        const numBands = m.length;
-        const bassEnd = Math.floor(numBands * 0.2);
-        const midEnd = Math.floor(numBands * 0.5);
-
-        const bassSum = m.slice(0, bassEnd).reduce((a,b)=>a+b, 0) / bassEnd;
-        const midSum = m.slice(bassEnd, midEnd).reduce((a,b)=>a+b, 0) / (midEnd - bassEnd);
-        const trebleSum = m.slice(midEnd).reduce((a,b)=>a+b, 0) / (numBands - midEnd);
+        const m = features.melBands;
+        const bassSum = m.slice(0, 4).reduce((a,b)=>a+b, 0) / 4;
+        const midSum = m.slice(4, 15).reduce((a,b)=>a+b, 0) / 11;
+        const trebleSum = m.slice(15).reduce((a,b)=>a+b, 0) / (m.length - 15);
 
         this.metrics.bass = Math.min(1, bassSum / 30);
         this.metrics.mid = Math.min(1, midSum / 20);
@@ -118,8 +115,8 @@ export class AudioAnalyzer {
         this.metrics.vol = features.rms;
 
         // --- FIX 1: Correct Centroid Normalization ---
-        // Normalize to full Nyquist range (or use a perceptual scale)
-        this.metrics.centroid = Math.min(1, features.spectralCentroid / (this.ctx.sampleRate / 2));
+        // Meyda (512 buffer) returns bin index 0-256. 
+        this.metrics.centroid = Math.min(1, features.spectralCentroid / 256);
 
         // --- BEAT DETECTION ---
         this.avgFlux = (this.avgFlux * 0.96) + (flux * 0.04);
