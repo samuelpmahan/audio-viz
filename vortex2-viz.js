@@ -11,6 +11,15 @@ export class ParticleTunnel2 {
         this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         
+        // --- CONFIGURATION STATE ---
+        this.config = {
+            bloomStrength: 1.2,
+            rotationSpeed: 0.02,
+            baseSpeed: 2.0,
+            glitchAmount: 0.002,
+            ringScale: 1.0
+        };
+
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.FogExp2(0x000000, 0.002);
 
@@ -22,7 +31,7 @@ export class ParticleTunnel2 {
         this.composer.addPass(new RenderPass(this.scene, this.camera));
 
         this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-        this.bloomPass.strength = 1.2; 
+        this.bloomPass.strength = this.config.bloomStrength; 
         this.bloomPass.radius = 0.2;   
         this.bloomPass.threshold = 0.1;  
         this.composer.addPass(this.bloomPass);
@@ -31,20 +40,12 @@ export class ParticleTunnel2 {
         this.rgbShiftPass.uniforms['amount'].value = 0.002; 
         this.composer.addPass(this.rgbShiftPass);
 
-        // --- STATE (ENHANCED) ---
+        // --- STATE ---
         this.time = 0;
-        
-        // Multi-band impulses (replacing single kick/snare)
         this.bassImpulse = 0;
         this.midImpulse = 0;
         this.highImpulse = 0;
-        
-        // Anticipation tracking (bigger reactions after silence)
-        this.lastBassTime = 0;
-        this.anticipationMultiplier = 1.0;
-        
-        // Genre detection state
-        this.genreMode = 'neutral'; // 'electronic', 'ambient', 'neutral'
+        this.genreMode = 'neutral';
         this.genreCheckTimer = 0;
 
         // --- PARTICLES ---
@@ -60,6 +61,37 @@ export class ParticleTunnel2 {
         window.addEventListener('resize', () => this.resize());
     }
 
+    // --- MANUAL CONTROLS INTERFACE ---
+    getParams() {
+        return [
+            {
+                name: 'Bloom',
+                min: 0, max: 4, step: 0.1, value: this.config.bloomStrength,
+                onChange: (v) => this.config.bloomStrength = v
+            },
+            {
+                name: 'Speed',
+                min: 0, max: 10, step: 0.1, value: this.config.baseSpeed,
+                onChange: (v) => this.config.baseSpeed = v
+            },
+            {
+                name: 'Rotation',
+                min: 0, max: 0.1, step: 0.001, value: this.config.rotationSpeed,
+                onChange: (v) => this.config.rotationSpeed = v
+            },
+            {
+                name: 'Glitch',
+                min: 0, max: 0.02, step: 0.0001, value: this.config.glitchAmount,
+                onChange: (v) => this.config.glitchAmount = v
+            },
+            {
+                name: 'Rings',
+                min: 0, max: 2, step: 0.1, value: this.config.ringScale,
+                onChange: (v) => this.config.ringScale = v
+            }
+        ];
+    }
+
     initParticles() {
         const geometry = new THREE.BufferGeometry();
         const positions = [];
@@ -70,21 +102,17 @@ export class ParticleTunnel2 {
             const angle = Math.random() * Math.PI * 2;
             const radius = 40 + Math.random() * 50; 
             const z = (Math.random() * 2000) - 1000;
-
             const x = Math.cos(angle) * radius;
             const y = Math.sin(angle) * radius;
-
             positions.push(x, y, z);
 
-            // Gradient: Blue -> Pink
             const hue = 0.55 + (Math.random() * 0.35); 
             color.setHSL(hue, 1.0, 0.6);
             colors.push(color.r, color.g, color.b);
 
             this.velocities.push({
                 vx: (Math.random() - 0.5) * 0.2,
-                vy: (Math.random() - 0.5) * 0.2,
-                phase: Math.random() * Math.PI * 2
+                vy: (Math.random() - 0.5) * 0.2
             });
         }
 
@@ -92,12 +120,8 @@ export class ParticleTunnel2 {
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
         const material = new THREE.PointsMaterial({
-            size: 2.0,
-            vertexColors: true,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            transparent: true,
-            opacity: 0.9
+            size: 2.0, vertexColors: true, blending: THREE.AdditiveBlending,
+            depthWrite: false, transparent: true, opacity: 0.9
         });
 
         this.particles = new THREE.Points(geometry, material);
@@ -109,10 +133,7 @@ export class ParticleTunnel2 {
         for (let i = 0; i < 5; i++) {
             const geometry = new THREE.TorusGeometry(60, 0.4, 8, 100); 
             const material = new THREE.MeshBasicMaterial({
-                color: 0x4444ff,
-                transparent: true,
-                opacity: 0.6, 
-                blending: THREE.AdditiveBlending
+                color: 0x4444ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending
             });
             const ring = new THREE.Mesh(geometry, material);
             ring.position.z = this.camera.position.z - 200 - (i * 300);
@@ -122,97 +143,49 @@ export class ParticleTunnel2 {
     }
 
     detectGenre(metrics) {
-        // Check genre every 2 seconds
-        this.genreCheckTimer += 0.016; // ~60fps
+        this.genreCheckTimer += 0.016;
         if (this.genreCheckTimer < 2.0) return;
         this.genreCheckTimer = 0;
 
-        // ELECTRONIC: Heavy bass, fast BPM, consistent rhythm
         if (metrics.bassPresence > 0.7 && metrics.bpm > 120 && metrics.bpm < 180) {
             this.genreMode = 'electronic';
-        }
-        // AMBIENT: Low bass, high treble, slow or no BPM
-        else if (metrics.highPresence > 0.6 && metrics.bassPresence < 0.3 && metrics.bpm < 100) {
+        } else if (metrics.highPresence > 0.6 && metrics.bassPresence < 0.3 && metrics.bpm < 100) {
             this.genreMode = 'ambient';
-        }
-        // NEUTRAL: Everything else
-        else {
+        } else {
             this.genreMode = 'neutral';
         }
     }
 
     animate(metrics) {
         this.time += 0.01;
-
-        // ========================================
-        // GENRE DETECTION
-        // ========================================
         this.detectGenre(metrics);
 
-        // ========================================
-        // MULTI-BAND IMPULSE TRACKING
-        // ========================================
-        // Decay existing impulses
+        // --- PHYSICS ---
         this.bassImpulse *= 0.90; 
         this.midImpulse *= 0.92;
         this.highImpulse *= 0.94;
 
-        // Update from new hits
         if (metrics.bassHit > 0.8) {
-            // ANTICIPATION: Bigger reaction after silence
-            this.anticipationMultiplier = 1.0 + Math.min(2.0, metrics.bassTime / 2000);
-            this.bassImpulse = 1.0 * this.anticipationMultiplier;
+            const anticipation = 1.0 + Math.min(2.0, metrics.bassTime / 2000);
+            this.bassImpulse = 1.0 * anticipation;
         }
-        
-        if (metrics.midHit > 0.8) {
-            this.midImpulse = 1.0;
-        }
-        
-        if (metrics.highHit > 0.8) {
-            this.highImpulse = 1.0;
-        }
+        if (metrics.midHit > 0.8) this.midImpulse = 1.0;
+        if (metrics.highHit > 0.8) this.highImpulse = 1.0;
 
-        // ========================================
-        // ADAPTIVE FOG (Based on Bass Presence)
-        // ========================================
-        // Heavy bass = thicker fog (more mysterious)
-        const targetFogDensity = 0.001 + (metrics.bassPresence * 0.002);
-        this.scene.fog.density += (targetFogDensity - this.scene.fog.density) * 0.1;
+        // --- MOVEMENT ---
+        // 1. Rotation (Manual Config + Reactivity)
+        let rotSpeed = this.config.rotationSpeed;
+        if (this.genreMode === 'electronic') rotSpeed += (this.bassImpulse * 0.1);
+        else if (this.genreMode === 'ambient') rotSpeed += (metrics.lfo8 * 0.02);
+        this.particles.rotation.z -= rotSpeed;
 
-        // ========================================
-        // MOVEMENT
-        // ========================================
-        
-        // Rotation: Genre-dependent style
-        let rotationSpeed = 0.02;
-        
-        if (this.genreMode === 'electronic') {
-            // Sharp, aggressive rotation
-            rotationSpeed = 0.03 + (this.bassImpulse * 0.1);
-        } else if (this.genreMode === 'ambient') {
-            // Smooth, LFO-driven rotation
-            rotationSpeed = 0.01 + (metrics.lfo8 * 0.02);
-        }
-        
-        this.particles.rotation.z -= rotationSpeed;
-
-        // Speed: Volume-based with genre modulation
-        let baseSpeed = 2 + (metrics.vol * 10);
-        
-        if (this.genreMode === 'electronic') {
-            // Punchy, hit-driven speed boosts
-            baseSpeed += this.bassImpulse * 15;
-        } else if (this.genreMode === 'ambient') {
-            // Gentle, flowing speed
-            baseSpeed = 1 + (metrics.vol * 5) + (metrics.lfo4 * 2);
-        }
-        
-        const speed = baseSpeed;
+        // 2. Speed (Manual Config + Reactivity)
+        let speed = this.config.baseSpeed + (metrics.vol * 10);
+        if (this.genreMode === 'electronic') speed += this.bassImpulse * 15;
+        else if (this.genreMode === 'ambient') speed = 1 + (speed * 0.5) + (metrics.lfo4 * 2);
         this.camera.position.z -= speed;
 
-        // ========================================
-        // PARTICLE LOGIC
-        // ========================================
+        // --- PARTICLES ---
         const positions = this.particles.geometry.attributes.position.array;
         const colors = this.particles.geometry.attributes.color.array;
         const color = new THREE.Color();
@@ -220,50 +193,26 @@ export class ParticleTunnel2 {
         for (let i = 0; i < this.count; i++) {
             const i3 = i * 3;
             const v = this.velocities[i];
-
-            // Movement
             positions[i3] += v.vx;
             positions[i3+1] += v.vy;
 
-            // Infinite Loop (Guard 30)
             if (positions[i3 + 2] > this.camera.position.z - 30) {
                 positions[i3 + 2] = this.camera.position.z - 1000 - (Math.random() * 500);
-                
                 const angle = Math.random() * Math.PI * 2;
                 const radius = 40 + Math.random() * 50; 
                 positions[i3] = Math.cos(angle) * radius;
                 positions[i3 + 1] = Math.sin(angle) * radius; 
             }
 
-            // ========================================
-            // COLOR REACTIVITY (Multi-band + Genre)
-            // ========================================
+            // Color Logic
             let hue, sat, light;
-            
             if (this.genreMode === 'electronic') {
-                // Electronic: Sharp color shifts on hits
-                if (this.bassImpulse > 0.5) {
-                    hue = 0.95; // Deep red on bass
-                    sat = 1.0;
-                    light = 0.5 + (this.bassImpulse * 0.3);
-                } else if (this.midImpulse > 0.5) {
-                    hue = 0.15; // Orange on mid
-                    sat = 1.0;
-                    light = 0.6;
-                } else {
-                    hue = 0.55 + (metrics.centroid * 0.15); // Blue baseline
-                    sat = 0.8;
-                    light = 0.5;
-                }
-            } else if (this.genreMode === 'ambient') {
-                // Ambient: Smooth LFO-driven color shifts
-                hue = 0.5 + (metrics.lfo8 * 0.3); // Cyan to purple
-                sat = 0.6 + (metrics.highPresence * 0.3);
-                light = 0.4 + (metrics.ramp4 * 0.3);
+                if (this.bassImpulse > 0.5) { hue = 0.95; sat = 1.0; light = 0.5 + (this.bassImpulse * 0.3); }
+                else if (this.midImpulse > 0.5) { hue = 0.15; sat = 1.0; light = 0.6; }
+                else { hue = 0.55 + (metrics.centroid * 0.15); sat = 0.8; light = 0.5; }
             } else {
-                // Neutral: Original behavior with mid-hit accents
                 hue = 0.55 + (metrics.centroid * 0.35);
-                sat = 0.8 + (this.midImpulse * 0.2);
+                sat = 0.8;
                 light = 0.5 + (this.bassImpulse * 0.2);
             }
             
@@ -275,91 +224,29 @@ export class ParticleTunnel2 {
         
         this.particles.geometry.attributes.position.needsUpdate = true;
         this.particles.geometry.attributes.color.needsUpdate = true;
-
-        // ========================================
-        // PARTICLE SIZE (Mid-hit reactive)
-        // ========================================
         this.particles.material.size = 2.0 + (this.midImpulse * 2.0);
 
-        // ========================================
-        // RINGS
-        // ========================================
-        this.rings.forEach((ring, i) => {
+        // --- RINGS ---
+        this.rings.forEach((ring) => {
             ring.position.z += speed;
-            
             if (ring.position.z > this.camera.position.z) {
                 ring.position.z = this.camera.position.z - 1500;
             }
-            
-            // Size pulse on bass
-            const scale = 1.0 + (this.bassImpulse * 0.3);
+            // Manual Ring Scale + Bass Pulse
+            const scale = this.config.ringScale + (this.bassImpulse * 0.3);
             ring.scale.set(scale, scale, 1);
-            
-            // Color shift on mid hits
-            let ringHue;
-            if (this.genreMode === 'electronic') {
-                ringHue = 0.6 + (this.midImpulse * 0.4); // Blue to magenta
-            } else if (this.genreMode === 'ambient') {
-                ringHue = 0.5 + (metrics.lfo4 * 0.2); // Gentle cyan shifts
-            } else {
-                ringHue = 0.6 + (this.midImpulse * 0.3);
-            }
-            
-            ring.material.color.setHSL(ringHue, 1.0, 0.5);
-            
-            // Opacity based on presence
             ring.material.opacity = 0.4 + (metrics.midPresence * 0.3);
         });
 
-        // ========================================
-        // CAMERA EFFECTS
-        // ========================================
+        // --- POST PROCESSING ---
+        // 1. Glitch (Manual + High Freq)
+        const totalGlitch = this.config.glitchAmount + (this.highImpulse * 0.03);
+        this.rgbShiftPass.uniforms['amount'].value = totalGlitch;
         
-        // Multi-band shake
-        let shakeAmount = 0;
-        shakeAmount += this.bassImpulse * 2.0;  // Bass = strong shake
-        shakeAmount += this.midImpulse * 1.0;   // Mid = medium shake
-        shakeAmount += this.highImpulse * 0.5;  // High = subtle shake
-        
-        this.camera.position.x += (Math.random() - 0.5) * shakeAmount;
-        this.camera.position.y += (Math.random() - 0.5) * shakeAmount;
-        
-        // Return to center
-        this.camera.position.x += (0 - this.camera.position.x) * 0.1;
-        this.camera.position.y += (0 - this.camera.position.y) * 0.1;
-
-        // LFO-driven camera sway (during quiet/ambient sections)
-        if (metrics.vol < 0.3 || this.genreMode === 'ambient') {
-            this.camera.position.x += Math.sin(metrics.lfo8 * Math.PI * 2) * 2;
-            this.camera.position.y += Math.cos(metrics.lfo4 * Math.PI * 2) * 1;
-        }
-
-        // ========================================
-        // POST PROCESSING
-        // ========================================
-        
-        // RGB Shift: High-frequency hits create glitch effect
-        const baseShift = 0.002;
-        const highShift = this.highImpulse * 0.03;  // NEW: High-hit glitch
-        const midShift = this.midImpulse * 0.01;    // Mid adds subtle shift
-        this.rgbShiftPass.uniforms['amount'].value = baseShift + highShift + midShift;
-        
-        // Bloom: Multi-band control
-        let bloomStrength = 1.2;
-        bloomStrength += this.bassImpulse * 0.5;    // Bass pumps bloom
-        bloomStrength += metrics.highPresence * 0.3; // High presence adds glow
-        
-        // Genre-specific bloom adjustments
-        if (this.genreMode === 'electronic') {
-            bloomStrength += 0.3; // Electronic = more intense
-        } else if (this.genreMode === 'ambient') {
-            bloomStrength += 0.5; // Ambient = soft glow
-            this.bloomPass.threshold = 0.05; // Lower threshold for softer look
-        } else {
-            this.bloomPass.threshold = 0.1; // Normal threshold
-        }
-        
-        this.bloomPass.strength = Math.min(2.5, bloomStrength);
+        // 2. Bloom (Manual + Bass)
+        let bloom = this.config.bloomStrength + (this.bassImpulse * 0.5);
+        if (this.genreMode === 'electronic') bloom += 0.3;
+        this.bloomPass.strength = Math.min(4.0, bloom);
 
         this.composer.render(); 
     }

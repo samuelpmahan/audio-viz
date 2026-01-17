@@ -10,23 +10,25 @@ export class JoyViz {
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         
+        // --- MANUAL CONFIG ---
+        this.config = {
+            width: 250,
+            amplitude: 90.0,
+            spacing: 1.0,
+            lineCount: 100
+        };
+
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x000000);
-        // Push fog further back since we are stacking higher
         this.scene.fog = new THREE.Fog(0x000000, 150, 400);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        
-        // MOVED CLOSER: Z=90 -> Z=80
-        // This effectively "Zooms In" to fill the frame horizontally
         this.camera.position.set(0, 50, 80);
         this.camera.lookAt(0, -10, 0); 
 
         // -- CONFIG --
-        this.LINE_COUNT = 100;   // Increased from 80 -> 100 (To fill the top)
+        this.LINE_COUNT = 100;
         this.SEGMENTS = 256; 
-        this.WIDTH = 250;    
-        this.SPACING = 1.0;     
         this.Y_SEGMENTS = 10;
         
         this.lines = [];
@@ -35,10 +37,43 @@ export class JoyViz {
         window.addEventListener('resize', () => this.resize());
     }
 
+    getParams() {
+        return [
+            {
+                name: 'Width',
+                min: 50, max: 500, step: 10, value: this.config.width,
+                onChange: (v) => { this.config.width = v; this.rebuildGeometry(); }
+            },
+            {
+                name: 'Amp',
+                min: 10, max: 200, step: 5, value: this.config.amplitude,
+                onChange: (v) => this.config.amplitude = v
+            },
+            {
+                name: 'Spacing',
+                min: 0.5, max: 5.0, step: 0.1, value: this.config.spacing,
+                onChange: (v) => { this.config.spacing = v; this.updateSpacing(); }
+            }
+        ];
+    }
+
+    rebuildGeometry() {
+        // Simple hack: reload page or full rebuild is hard. 
+        // We will just scale the root scene object in X for Width
+        // A proper rebuild requires disposing all meshes.
+        // For now, let's just update the X positions in the animate loop scaling.
+    }
+
+    updateSpacing() {
+        this.lines.forEach((obj, i) => {
+            obj.group.position.z = -i * this.config.spacing;
+        });
+    }
+
     initLines() {
         const shapeGeometry = new THREE.PlaneGeometry(
-            this.WIDTH, 
-            30, // Taller ribbon to ensure no gaps on steep viewing angles
+            this.config.width, // Initial Width
+            30, 
             this.SEGMENTS - 1, 
             this.Y_SEGMENTS
         );
@@ -46,42 +81,28 @@ export class JoyViz {
         for (let i = 0; i < this.LINE_COUNT; i++) {
             const group = new THREE.Group();
             
-            // 1. Mask
+            // Mask
             const fillMat = new THREE.MeshBasicMaterial({ 
-                color: 0x000000, 
-                side: THREE.DoubleSide,
-                depthWrite: true,
-                depthTest: true
+                color: 0x000000, side: THREE.DoubleSide, depthWrite: true, depthTest: true
             });
             const mesh = new THREE.Mesh(shapeGeometry.clone(), fillMat);
             mesh.renderOrder = i; 
             group.add(mesh);
 
-            // 2. Line
+            // Line
             const lineGeo = new THREE.BufferGeometry();
             const positions = new Float32Array(this.SEGMENTS * 3);
             lineGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
-            const lineMat = new THREE.LineBasicMaterial({ 
-                color: 0xffffff,
-                depthWrite: true,
-                depthTest: true
-            });
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, depthWrite: true, depthTest: true });
             const line = new THREE.Line(lineGeo, lineMat);
             line.renderOrder = i + this.LINE_COUNT; 
             group.add(line);
 
-            // --- STACKING LOGIC (The "Wall" Effect) ---
-            
-            // Z: Move back slowly (1.0 unit per line)
-            group.position.z = -i * this.SPACING;
-            
-            // ANCHOR BOTTOM: Start at -60 instead of -40.
-            // This forces the bottom line to touch the bottom of the screen.
+            group.position.z = -i * this.config.spacing;
             group.position.y = -100 + (i * 1.0);
 
             this.scene.add(group);
-            this.lines.push({ mesh, line, data: new Float32Array(this.SEGMENTS) });
+            this.lines.push({ group, mesh, line, data: new Float32Array(this.SEGMENTS) });
         }
     }
 
@@ -97,13 +118,10 @@ export class JoyViz {
         
         for (let j = 0; j < this.SEGMENTS; j++) {
             let val = rawData[j * step] / 255.0;
-            
             const ratio = j / this.SEGMENTS;
             const window = Math.pow(Math.sin(ratio * Math.PI), 2);
-            
-            // Amplitude: 90.0 gives massive peaks
-            val = val * window * 90.0;
-            
+            // AMPLITUDE CONTROL
+            val = val * window * this.config.amplitude;
             currentData[j] = val;
         }
 
@@ -115,7 +133,8 @@ export class JoyViz {
             const linePos = line.geometry.attributes.position.array;
 
             for (let j = 0; j < this.SEGMENTS; j++) {
-                const x = (j / (this.SEGMENTS - 1)) * this.WIDTH - (this.WIDTH / 2);
+                // WIDTH CONTROL (Dynamic)
+                const x = (j / (this.SEGMENTS - 1)) * this.config.width - (this.config.width / 2);
                 const y = data[j];
 
                 // Update Line
@@ -124,13 +143,10 @@ export class JoyViz {
                 linePos[j * 3 + 2] = 0;
 
                 // Update Mesh Ribbon
-                // Deep baseline (-40) to ensure full coverage
                 const baseline = -40; 
-                
                 for (let row = 0; row <= this.Y_SEGMENTS; row++) {
                     const vertexIndex = row * this.SEGMENTS + j;
                     const t = row / this.Y_SEGMENTS; 
-                    
                     meshPos[vertexIndex * 3] = x;
                     meshPos[vertexIndex * 3 + 1] = y * (1 - t) + baseline * t;
                     meshPos[vertexIndex * 3 + 2] = 0;

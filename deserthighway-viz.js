@@ -40,6 +40,15 @@ export class HotelCalifornia {
         this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         
+        // --- MANUAL CONTROL CONFIG ---
+        this.config = {
+            roadSpeed: 2.0,      // Base speed
+            hazeIntensity: 0.003,// Base heat haze
+            sunOffset: 0,        // Manual sun height adjustment
+            bloomStrength: 1.6,  // Base bloom
+            starCount: 1.0       // Star visibility multiplier
+        };
+
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.FogExp2(0x22052b, 0.0015);
 
@@ -52,7 +61,7 @@ export class HotelCalifornia {
         this.composer.addPass(new RenderPass(this.scene, this.camera));
 
         this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-        this.bloomPass.strength = 1.6; 
+        this.bloomPass.strength = this.config.bloomStrength; 
         this.bloomPass.radius = 0.8;   
         this.bloomPass.threshold = 0.15;  
         this.composer.addPass(this.bloomPass);
@@ -96,6 +105,37 @@ export class HotelCalifornia {
         this.genreCheckTimer = 0;
 
         window.addEventListener('resize', () => this.resize());
+    }
+
+    // --- NEW INTERFACE FOR INDEX.HTML ---
+    getParams() {
+        return [
+            {
+                name: 'Speed',
+                min: 0, max: 20, step: 0.1, value: this.config.roadSpeed,
+                onChange: (v) => this.config.roadSpeed = v
+            },
+            {
+                name: 'Haze',
+                min: 0, max: 0.02, step: 0.0001, value: this.config.hazeIntensity,
+                onChange: (v) => this.config.hazeIntensity = v
+            },
+            {
+                name: 'Sun Y',
+                min: -100, max: 100, step: 1, value: this.config.sunOffset,
+                onChange: (v) => this.config.sunOffset = v
+            },
+            {
+                name: 'Bloom',
+                min: 0, max: 4, step: 0.1, value: this.config.bloomStrength,
+                onChange: (v) => this.config.bloomStrength = v
+            },
+            {
+                name: 'Stars',
+                min: 0, max: 2, step: 0.1, value: this.config.starCount,
+                onChange: (v) => this.config.starCount = v
+            }
+        ];
     }
 
     createStarburstTexture() {
@@ -402,12 +442,15 @@ export class HotelCalifornia {
         // Sun elevation follows a proper day/night cycle
         // cos wave centered at 0.25 (noon) gives us the right arc
         const sunElevation = Math.cos(2 * Math.PI * (this.timeOfDay - 0.25));
-        const sunVerticalPos = sunElevation * 80 - 20; // -100 (night) to 60 (noon)
+        
+        // MANUALLY CONTROLLED SUN POSITION ADDITION:
+        // We take the calculated auto position and add the manual offset
+        const sunVerticalPos = (sunElevation * 80 - 20) + this.config.sunOffset;
 
         const sunHorizontalPos = .5;
 
         this.lightGroup.position.x = sunHorizontalPos;
-        this.lightGroup.position.y = sunVerticalPos; // Now moves up/down!
+        this.lightGroup.position.y = sunVerticalPos; 
         this.lightGroup.position.z = -1000;
 
         // Scale pulse on bass
@@ -424,14 +467,15 @@ export class HotelCalifornia {
         this.lightHalo.material.color.setHSL(sunHue, sunSat, sunLight * 0.8);
         this.lightRays.material.color.setHSL(sunHue, 0.9, sunLight * 0.9);
 
-        // Bloom intensity (genre-dependent)
-        let bloomStrength = 1.6 + (this.bassImpulse * 0.8);
+        // MANUALLY CONTROLLED BLOOM
+        let bloomStrength = this.config.bloomStrength + (this.bassImpulse * 0.8);
+        
         if (this.genreMode === 'electronic') {
             bloomStrength += 0.5; // Intense bloom
         } else if (this.genreMode === 'ambient') {
             bloomStrength += 0.3; // Soft glow
         }
-        this.bloomPass.strength = Math.min(3.0, bloomStrength);
+        this.bloomPass.strength = Math.min(6.0, bloomStrength); // Increased cap to allow manual overdrive
 
         // ========================================
         // SKY & FOG COLOR
@@ -439,14 +483,15 @@ export class HotelCalifornia {
         this.scene.fog.color = fogColor;
 
         // ========================================
-        // ROAD ANIMATION (SLOWED FOR BALLAD PACING)
+        // ROAD ANIMATION (MANUALLY CONTROLLED)
         // ========================================
-        let roadSpeed = 2 + (metrics.vol * 8); // Was 5 + vol*20 (too fast!)
+        // Use config.roadSpeed as the base
+        let roadSpeed = this.config.roadSpeed + (metrics.vol * 8);
         
         if (this.genreMode === 'electronic') {
-            roadSpeed += this.bassImpulse * 12; // Was 30 (more moderate)
+            roadSpeed += this.bassImpulse * 12; 
         } else if (this.genreMode === 'ambient') {
-            roadSpeed = 1 + (metrics.vol * 4) + (metrics.lfo4 * 2); // Dreamy slow
+            roadSpeed = 1 + (metrics.vol * 4) + (metrics.lfo4 * 2); 
         }
         
         const roadPos = this.roadParticles.geometry.attributes.position.array;
@@ -479,15 +524,15 @@ export class HotelCalifornia {
         this.roadParticles.geometry.attributes.color.needsUpdate = true;
 
         // ========================================
-        // SKY PARTICLES (STARS)
+        // SKY PARTICLES (STARS - MANUALLY CONTROLLED)
         // ========================================
         const skyPos = this.skyParticles.geometry.attributes.position.array;
         
         // Star visibility based on time of day AND sun elevation
-        // Only show stars when sun is actually down (not just at certain times)
-        //const sunElevation = Math.max(0, Math.sin((this.timeOfDay * Math.PI * 2) - Math.PI));
-        const starVisibility = Math.pow(1.0 - sunElevation, 2.0); // Inverse of sun elevation, squared for sharper transition
-        this.skyParticles.material.opacity = starVisibility * (0.6 + (this.highImpulse * 0.4));
+        const starVisibility = Math.pow(1.0 - sunElevation, 2.0); 
+        
+        // Multiply by manual starCount
+        this.skyParticles.material.opacity = starVisibility * (0.6 + (this.highImpulse * 0.4)) * this.config.starCount;
         
         // Star twinkle (ramp2 for rhythmic pulsing)
         const twinkle = 1.0 + (Math.sin(metrics.ramp2 * Math.PI * 2) * 0.3);
@@ -511,8 +556,7 @@ export class HotelCalifornia {
         // 1. INCREASE FORWARD SPEED slightly so it feels faster
         const dustSpeed = roadSpeed * 0.8; 
         
-        // 2. REDUCE SIDE WIND (Was * 10, now * 0.2)
-        // This prevents them from flying off the side of the screen
+        // 2. REDUCE SIDE WIND
         const windGust = this.midImpulse * 0.2; 
         
         const dustStorm = this.bassImpulse * this.dustBuildUp * 20; 
@@ -521,14 +565,13 @@ export class HotelCalifornia {
             // MOVE FORWARD (Z-Axis)
             dustPos[i + 2] += dustSpeed + dustStorm;
             
-            // SIDEWAYS SWAY (X-Axis) - Now subtle
+            // SIDEWAYS SWAY (X-Axis)
             dustPos[i] += Math.sin(this.time * 0.5 + i) * 0.2 + windGust;
             
             // VERTICAL BOB (Y-Axis)
             dustPos[i + 1] += Math.cos(this.time * 0.3 + i) * 0.1;
             
             // INFINITE LOOP RESET
-            // If it passes the camera (Z > 200), send it to the back
             if (dustPos[i + 2] > 200) {
                 dustPos[i + 2] = -1000 - Math.random() * 500; // Reset deep in back
                 dustPos[i] = (Math.random() - 0.5) * 1000;    // Randomize X again
@@ -561,12 +604,12 @@ export class HotelCalifornia {
         this.moonGlow.scale.set(moonScale, moonScale, moonScale);
 
         // ========================================
-        // HEAT HAZE SHADER
+        // HEAT HAZE SHADER (MANUALLY CONTROLLED)
         // ========================================
         this.hazePass.uniforms['time'].value = this.time;
         
-        // Haze intensity based on high presence (shimmering)
-        const hazeStrength = 0.002 + (metrics.highPresence * 0.005);
+        // Haze intensity based on manual config + high presence
+        const hazeStrength = this.config.hazeIntensity + (metrics.highPresence * 0.005);
         this.hazePass.uniforms['strength'].value = hazeStrength;
         
         // Haze frequency breathes with lfo4

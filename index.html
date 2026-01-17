@@ -56,16 +56,16 @@
         #bottom-dashboard {
             position: absolute;
             bottom: 0; left: 0; width: 100%;
-            background: linear-gradient(to top, #000 0%, rgba(0,0,0,0.9) 100%);
+            background: linear-gradient(to top, #000 0%, rgba(0,0,0,0.95) 100%);
             border-top: 1px solid #333;
             padding: 15px 20px;
             box-sizing: border-box;
             z-index: 10;
-            display: none; /* Hidden until started */
-            grid-template-columns: 300px 1fr 200px 80px; /* Switcher | Meters | Gain | Beats */
+            display: none; 
+            grid-template-columns: 200px 1fr 250px 150px 80px; 
             gap: 20px;
             align-items: center;
-        }
+    }
 
         /* 1. VIZ SWITCHER */
         #viz-switcher {
@@ -118,6 +118,37 @@
         #mid-fill { background: #ffdd00; }
         #treble-fill { background: #00e5ff; }
         #wub-fill { background: #a020f0; }
+
+        #specific-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            border-left: 1px solid #333;
+            border-right: 1px solid #333;
+            padding: 0 15px;
+            height: 50px;
+            overflow-y: auto;
+            align-items: center;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            width: 100px;
+        }
+        
+        .control-group label {
+            font-size: 9px;
+            color: #888;
+            margin-bottom: 2px;
+            white-space: nowrap;
+        }
+        
+        .control-group input[type=range] {
+            width: 100%;
+            accent-color: #00e5ff;
+            height: 4px;
+        }
 
         /* 3. GAIN */
         #gain-area {
@@ -197,6 +228,8 @@
             </div>
         </div>
 
+        <div id="specific-controls"></div>
+
         <div id="gain-area">
             <div class="ctrl-label">INPUT GAIN: <span id="gainVal">2.5</span></div>
             <input type="range" id="gainSlider" min="0" max="10" step="0.1" value="2.5">
@@ -252,6 +285,8 @@
         const elKick = document.getElementById('kick-indicator');
         const elSnare = document.getElementById('snare-indicator');
 
+        const specificContainer = document.getElementById('specific-controls');
+
         // 1. GENERATE SWITCHER UI
         function renderSwitcher() {
             switcher.innerHTML = '';
@@ -272,6 +307,42 @@
             });
         }
 
+        function renderVizControls(vizInstance) {
+            specificContainer.innerHTML = ''; // Clear previous controls
+            
+            // Check if the visualizer exposes params
+            if (vizInstance && typeof vizInstance.getParams === 'function') {
+                const params = vizInstance.getParams();
+                
+                params.forEach(p => {
+                    const group = document.createElement('div');
+                    group.className = 'control-group';
+                    
+                    const label = document.createElement('label');
+                    label.innerText = `${p.name}: ${p.value}`;
+                    
+                    const input = document.createElement('input');
+                    input.type = 'range';
+                    input.min = p.min;
+                    input.max = p.max;
+                    input.step = p.step;
+                    input.value = p.value;
+                    
+                    input.addEventListener('input', (e) => {
+                        const val = parseFloat(e.target.value);
+                        label.innerText = `${p.name}: ${val}`; // Update label text
+                        p.onChange(val); // Call the visualizer's callback
+                    });
+                    
+                    group.appendChild(label);
+                    group.appendChild(input);
+                    specificContainer.appendChild(group);
+                });
+            } else {
+                specificContainer.innerHTML = '<span style="color:#444; font-size:10px;">NO MANUAL CONTROLS</span>';
+            }
+        }
+
         // 2. SWITCH LOGIC
         function switchViz(name, btnElement) {
             // Update Active State
@@ -287,6 +358,7 @@
                 // Note: Ideally we should .dispose() the old viz here if methods existed
                 // to prevent memory leaks (event listeners, geometries, etc).
                 currentViz = new VizClass();
+                renderVizControls(currentViz);
             } catch (err) {
                 console.error("Viz Load Error:", err);
             }
