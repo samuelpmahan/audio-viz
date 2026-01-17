@@ -14,6 +14,8 @@ export class AudioAnalyzer {
         this.analyser.smoothingTimeConstant = 0.4;
         this.bufferLength = this.analyser.frequencyBinCount;
         this.dataArray = new Uint8Array(this.bufferLength);
+
+        this.previousDataArray = new Uint8Array(this.bufferLength);
         
         // Internal State
         this.isInit = false;
@@ -56,7 +58,7 @@ export class AudioAnalyzer {
                 "featureExtractors": [
                     "rms",              // Volume
                     "spectralCentroid", // Brightness (Bass vs Snare discrimination)
-                    "spectralFlux",     // Onset/Transient detection (The "Change" over time)
+                    //"spectralFlux",     // Onset/Transient detection (The "Change" over time)
                     "melBands"          // Perceptual Frequency Bands (Better than linear FFT)
                 ],
                 "callback": (features) => {
@@ -85,71 +87,60 @@ export class AudioAnalyzer {
     update() {
         if (!this.isInit || !this.meydaAnalyzer) return;
 
-        // 1. Legacy Data (for visualizers that draw lines)
+        // 1. Get Smoothed Data (Legacy)
         this.analyser.getByteFrequencyData(this.dataArray);
 
-        // 2. Get SOTA Features from Meyda
+        // 2. Manual Flux Calculation
+        let flux = 0;
+        for (let i = 0; i < this.bufferLength; i++) {
+            flux += Math.abs(this.dataArray[i] - this.previousDataArray[i]);
+        }
+        flux /= this.bufferLength;
+        this.previousDataArray.set(this.dataArray);
+
+        // 3. Meyda Features
         const features = this.meydaAnalyzer.get();
         if(!features) return;
 
-        const now = performance.now();
-
-        // --- ENHANCEMENT 1: MEL BANDS ---
-        // Meyda gives us ~24-40 bands tailored to human hearing.
-        // We aggregate them into 3 simple groups for the visualizer.
-        // Mel Bands are usually 0-40. We assume 40 bands here.
+        // --- METRICS ---
         
-        const m = features.melBands;
-        // Bass: Bottom 20% of bands (Sub & Punch)
-        const bassSum = m.slice(0, 4).reduce((a,b)=>a+b, 0) / 4;
-        // Mid: Next 30% (Vocals/Snare)
-        const midSum = m.slice(4, 15).reduce((a,b)=>a+b, 0) / 11;
-        // Treble: Top 50% (Hats/Air)
-        const trebleSum = m.slice(15).reduce((a,b)=>a+b, 0) / (m.length - 15);
+        const numBands = m.length;
+        const bassEnd = Math.floor(numBands * 0.2);
+        const midEnd = Math.floor(numBands * 0.5);
 
-        // Normalize (Mel bands can be unbounded, but usually 0-50 range)
-        // We dampen them slightly to fit 0-1 range better
+        const bassSum = m.slice(0, bassEnd).reduce((a,b)=>a+b, 0) / bassEnd;
+        const midSum = m.slice(bassEnd, midEnd).reduce((a,b)=>a+b, 0) / (midEnd - bassEnd);
+        const trebleSum = m.slice(midEnd).reduce((a,b)=>a+b, 0) / (numBands - midEnd);
+
         this.metrics.bass = Math.min(1, bassSum / 30);
         this.metrics.mid = Math.min(1, midSum / 20);
         this.metrics.treble = Math.min(1, trebleSum / 10);
-        
         this.metrics.vol = features.rms;
-        // Normalize centroid (Nyquist is ~22050Hz). 
-        // 0.0 - 0.2 = Bass heavy
-        // 0.2 - 0.5 = Balanced
-        // 0.5+ = High frequency noise
-        this.metrics.centroid = Math.min(1, features.spectralCentroid / 100);
 
-        // --- ENHANCEMENT 2 & 3: ADAPTIVE FLUX THRESHOLD ---
-        // Spectral Flux measures "How much did the spectrum change?"
-        // We compare current Flux to the Running Average Flux.
+        // --- FIX 1: Correct Centroid Normalization ---
+        // Normalize to full Nyquist range (or use a perceptual scale)
+        this.metrics.centroid = Math.min(1, features.spectralCentroid / (this.ctx.sampleRate / 2));
+
+        // --- BEAT DETECTION ---
+        this.avgFlux = (this.avgFlux * 0.96) + (flux * 0.04);
         
-        // 1. Update Average (Slow learning)
-        this.avgFlux = (this.avgFlux * 0.96) + (features.spectralFlux * 0.04);
-        this.avgVol = (this.avgVol * 0.99) + (features.rms * 0.01);
-
-        // 2. Calculate Dynamic Threshold
-        // If the song is quiet, threshold drops. If chaotic, it rises.
-        // Multiplier 1.5 means "50% more change than average"
-        const currentThreshold = Math.max(0.5, this.avgFlux * 1.5);
+        // --- FIX 2: Lower Threshold Multiplier (1.5 -> 1.2) ---
+        // Since our data is smoothed, the "spike" is smaller relative to the average.
+        const currentThreshold = Math.max(0.5, this.avgFlux * 1.2);
 
         this.metrics.isKick = false;
         this.metrics.isSnare = false;
-
-        // 3. Trigger Logic
-        if (features.spectralFlux > currentThreshold) {
+        
+        // Using manual 'flux' here
+        if (flux > currentThreshold) {
+            const now = performance.now();
             
-            // Discrimination Logic: KICK vs SNARE
-            // Low Centroid = Kick. High Centroid = Snare.
-            
-            // KICK CHECK
+            // KICK: Low Centroid
             if (this.metrics.centroid < 0.35 && (now - this.kick.lastTime > 150)) {
                 this.metrics.isKick = true;
                 this.kick.lastTime = now;
             }
-            
-            // SNARE CHECK
-            // Snares are brighter (higher centroid) and often have less sub-bass
+            // SNARE: High Centroid
             else if (this.metrics.centroid > 0.35 && (now - this.snare.lastTime > 100)) {
                 this.metrics.isSnare = true;
                 this.snare.lastTime = now;
