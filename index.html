@@ -17,7 +17,7 @@
     <style>
         body { 
             background: #000; 
-            color: #0f0; 
+            color: #fff; 
             font-family: 'Courier New', Courier, monospace; 
             margin: 0; 
             overflow: hidden; 
@@ -28,6 +28,7 @@
             position: absolute;
             top: 0; left: 0;
             z-index: 1;
+            /* Ensure clicks pass through to canvas if needed, but UI needs them */
         }
 
         /* -- START OVERLAY -- */
@@ -35,164 +36,154 @@
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
             display: flex; align-items: center; justify-content: center;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.8);
             z-index: 20;
             transition: opacity 0.5s;
         }
         #start-btn {
             padding: 20px 40px;
             font-size: 24px;
-            background: #00e5ff;
-            color: #000;
-            border: none;
+            background: transparent;
+            color: #00e5ff;
+            border: 2px solid #00e5ff;
             cursor: pointer;
             font-weight: bold;
-            box-shadow: 0 0 20px #00e5ff;
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);
             transition: all 0.2s;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 2px;
         }
-        #start-btn:hover { background: #fff; box-shadow: 0 0 40px #fff; }
+        #start-btn:hover { 
+            background: #00e5ff; 
+            color: #000; 
+            box-shadow: 0 0 40px #00e5ff; 
+        }
 
-        /* -- DASHBOARD (Bottom Dock) -- */
+        /* -- GHOST DASHBOARD -- */
         #bottom-dashboard {
             position: absolute;
-            bottom: 0; left: 0; width: 100%;
-            background: linear-gradient(to top, #000 0%, rgba(0,0,0,0.95) 100%);
-            border-top: 1px solid #333;
-            padding: 15px 20px;
+            bottom: 20px; 
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 1200px;
+            
+            /* Glassmorphism look */
+            background: rgba(10, 10, 10, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            
+            padding: 15px 25px;
             box-sizing: border-box;
             z-index: 10;
-            display: none; 
-            grid-template-columns: 200px 1fr 250px 150px 80px; 
-            gap: 20px;
+            
+            /* Layout: Switcher | Specific Controls | Gain */
+            display: none; /* Hidden until started */
+            grid-template-columns: 250px 1fr 150px; 
+            gap: 30px;
             align-items: center;
-    }
 
-        /* 1. VIZ SWITCHER */
+            /* GHOST MODE TRANSITIONS */
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        /* When active class is added via JS, show it */
+        #bottom-dashboard.visible {
+            opacity: 1;
+        }
+
+        /* 1. VIZ SWITCHER (Grid for compactness) */
         #viz-switcher {
-            display: flex;
-            flex-wrap: wrap;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 8px;
         }
         .viz-btn {
-            background: transparent;
-            border: 1px solid #444;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             color: #888;
-            padding: 5px 10px;
+            padding: 6px 10px;
             cursor: pointer;
             font-family: inherit;
-            font-size: 12px;
+            font-size: 11px;
+            text-transform: uppercase;
             transition: all 0.2s;
+            border-radius: 4px;
+            text-align: center;
         }
-        .viz-btn:hover { border-color: #fff; color: #fff; }
+        .viz-btn:hover { border-color: #fff; color: #fff; background: rgba(255, 255, 255, 0.1); }
         .viz-btn.active {
             background: #00e5ff;
             color: #000;
             border-color: #00e5ff;
             font-weight: bold;
-            box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+            box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
         }
 
-        /* 2. METERS */
-        #meters-area {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            width: 100%;
-        }
-        .meter-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 10px;
-            color: #aaa;
-        }
-        .bar-bg {
-            flex-grow: 1;
-            height: 8px;
-            background: #222;
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        .bar-fill { height: 100%; width: 0%; transition: width 0.05s linear; }
-        #bass-fill { background: #ff0055; }
-        #mid-fill { background: #ffdd00; }
-        #treble-fill { background: #00e5ff; }
-        #wub-fill { background: #a020f0; }
-
+        /* 2. SPECIFIC CONTROLS (The Scrollable Middle) */
         #specific-controls {
             display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            border-left: 1px solid #333;
-            border-right: 1px solid #333;
-            padding: 0 15px;
-            height: 50px;
-            overflow-y: auto;
-            align-items: center;
+            flex-wrap: nowrap; /* Horizontal scroll */
+            overflow-x: auto;
+            gap: 20px;
+            padding-bottom: 5px; /* Space for scrollbar */
+            border-left: 1px solid rgba(255,255,255,0.1);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            padding-left: 20px;
+            padding-right: 20px;
         }
+        
+        /* Custom Scrollbar */
+        #specific-controls::-webkit-scrollbar { height: 4px; }
+        #specific-controls::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+        #specific-controls::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
 
         .control-group {
             display: flex;
             flex-direction: column;
-            width: 100px;
+            min-width: 100px;
         }
         
         .control-group label {
-            font-size: 9px;
-            color: #888;
-            margin-bottom: 2px;
+            font-size: 10px;
+            color: #00e5ff;
+            margin-bottom: 6px;
             white-space: nowrap;
+            letter-spacing: 1px;
         }
         
-        .control-group input[type=range] {
+        input[type=range] {
             width: 100%;
-            accent-color: #00e5ff;
             height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            -webkit-appearance: none;
+            cursor: pointer;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px; height: 12px;
+            background: #fff;
+            border-radius: 50%;
+            box-shadow: 0 0 5px #fff;
+            margin-top: -4px; /* Align vertical */
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
         }
 
-        /* 3. GAIN */
+        /* 3. GAIN (Right Side) */
         #gain-area {
             display: flex;
             flex-direction: column;
-            align-items: center;
-        }
-        input[type=range] { width: 100%; cursor: pointer; }
-        .ctrl-label { font-size: 10px; color: #aaa; margin-bottom: 5px; }
-
-        /* 4. BEAT INDICATORS (UPDATED) */
-        #beat-area {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            align-items: center;
             justify-content: center;
         }
-        .beat-light {
-            width: 80px; height: 25px;
-            background: #111;
-            border: 1px solid #333;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 10px; color: #444;
-            font-weight: bold;
-            border-radius: 4px;
-            transition: background 0.05s, transform 0.05s, box-shadow 0.05s;
-        }
-        /* KICK STATE (White) */
-        #kick-indicator.hit {
-            background: #fff;
-            color: #000;
-            box-shadow: 0 0 15px #fff;
-            border-color: #fff;
-            transform: scale(1.05);
-        }
-        /* SNARE STATE (Gold) */
-        #snare-indicator.hit {
-            background: #ffdd00;
-            color: #000;
-            box-shadow: 0 0 15px #ffdd00;
-            border-color: #ffdd00;
-            transform: scale(1.05);
-        }
+        .ctrl-label { font-size: 10px; color: #888; margin-bottom: 8px; text-align: right; }
 
     </style>
 </head>
@@ -206,43 +197,23 @@
 
     <div id="bottom-dashboard">
         
-        <div id="viz-switcher">
-            </div>
+        <div id="viz-switcher"></div>
 
-        <div id="meters-area">
-            <div class="meter-row">
-                <span style="width:40px">BASS</span>
-                <div class="bar-bg"><div id="bass-fill" class="bar-fill"></div></div>
-            </div>
-            <div class="meter-row">
-                <span style="width:40px">MID</span>
-                <div class="bar-bg"><div id="mid-fill" class="bar-fill"></div></div>
-            </div>
-            <div class="meter-row">
-                <span style="width:40px">HIGH</span>
-                <div class="bar-bg"><div id="treble-fill" class="bar-fill"></div></div>
-            </div>
-            <div class="meter-row">
-                <span style="width:40px">WUB</span>
-                <div class="bar-bg"><div id="wub-fill" class="bar-fill"></div></div>
-            </div>
+        <div id="specific-controls">
+            <span style="color:#444; font-size:10px;">NO MANUAL CONTROLS</span>
         </div>
 
-        <div id="specific-controls"></div>
-
         <div id="gain-area">
-            <div class="ctrl-label">INPUT GAIN: <span id="gainVal">2.5</span></div>
+            <div class="ctrl-label">SENSITIVITY: <span id="gainVal">2.5</span></div>
             <input type="range" id="gainSlider" min="0" max="10" step="0.1" value="2.5">
         </div>
 
-        <div id="beat-area">
-            <div id="kick-indicator" class="beat-light">KICK</div>
-            <div id="snare-indicator" class="beat-light">SNARE</div>
-        </div>
     </div>
 
     <script type="module">
         import { AudioAnalyzer } from './audio-engine-v7.js';
+        
+        // Import Visualizers
         import { ParticleTunnel } from './vortex-viz.js';
         import { JoyViz } from './joy-viz.js';
         import { ConstellationViz } from './constellation-viz.js';
@@ -251,8 +222,8 @@
         import { ParticleTunnel2 } from './vortex2-viz.js';
         import { Landslide } from './landslide-viz.js';
         import { HotelCalifornia } from './deserthighway-viz.js'
-        import { PulseGrid } from './pulse-grid-viz.js'
-        import { LiquidMetal } from './liquid-viz.js'
+        import { LiquidMetal } from './liquid-viz.js';
+        import { PulseGrid } from './pulse-grid-viz.js';
 
         // --- CONFIGURATION MAP ---
         const VISUALIZERS = new Map([
@@ -263,9 +234,9 @@
             ['Plasma', CrystalViz2],
             ['Vortex2', ParticleTunnel2],
             ['Landslide', Landslide],
-            ['DesertHighway', HotelCalifornia],
-            ['PulseGrid', PulseGrid],
-            ['LiquidMetal', LiquidMetal]
+            ['Desert Highway', HotelCalifornia],
+            ['Liquid Metal', LiquidMetal],
+            ['Pulse Grid', PulseGrid]
         ]);
 
         const engine = new AudioAnalyzer();
@@ -276,42 +247,30 @@
         const startBtn = document.getElementById('start-btn');
         const dashboard = document.getElementById('bottom-dashboard');
         const switcher = document.getElementById('viz-switcher');
-        
-        const elBass = document.getElementById('bass-fill');
-        const elMid = document.getElementById('mid-fill');
-        const elTreble = document.getElementById('treble-fill');
-        const elWub = document.getElementById('wub-fill');
-        
-        // NEW ELEMENTS
-        const elKick = document.getElementById('kick-indicator');
-        const elSnare = document.getElementById('snare-indicator');
-
         const specificContainer = document.getElementById('specific-controls');
+        
+        // --- AUTO-HIDE / GHOST UI LOGIC ---
+        let idleTimer = null;
 
-        // 1. GENERATE SWITCHER UI
-        function renderSwitcher() {
-            switcher.innerHTML = '';
-            let isFirst = true;
-
-            VISUALIZERS.forEach((VizClass, name) => {
-                const btn = document.createElement('button');
-                btn.className = 'viz-btn';
-                btn.innerText = name;
-                
-                if (isFirst) {
-                    btn.classList.add('active');
-                    isFirst = false;
-                }
-
-                btn.addEventListener('click', () => switchViz(name, btn));
-                switcher.appendChild(btn);
-            });
+        function showUI() {
+            dashboard.classList.add('visible');
+            // Reset timer
+            if (idleTimer) clearTimeout(idleTimer);
+            // Hide after 3 seconds of inactivity
+            idleTimer = setTimeout(() => {
+                dashboard.classList.remove('visible');
+            }, 3000);
         }
 
+        // Listen for mouse movement anywhere on screen
+        document.addEventListener('mousemove', showUI);
+        document.addEventListener('click', showUI);
+        document.addEventListener('touchstart', showUI);
+
+        // --- RENDER DYNAMIC CONTROLS ---
         function renderVizControls(vizInstance) {
             specificContainer.innerHTML = ''; // Clear previous controls
             
-            // Check if the visualizer exposes params
             if (vizInstance && typeof vizInstance.getParams === 'function') {
                 const params = vizInstance.getParams();
                 
@@ -331,8 +290,9 @@
                     
                     input.addEventListener('input', (e) => {
                         const val = parseFloat(e.target.value);
-                        label.innerText = `${p.name}: ${val}`; // Update label text
-                        p.onChange(val); // Call the visualizer's callback
+                        label.innerText = `${p.name}: ${val}`;
+                        p.onChange(val);
+                        showUI(); // Keep UI alive while dragging
                     });
                     
                     group.appendChild(label);
@@ -340,13 +300,34 @@
                     specificContainer.appendChild(group);
                 });
             } else {
-                specificContainer.innerHTML = '<span style="color:#444; font-size:10px;">NO MANUAL CONTROLS</span>';
+                specificContainer.innerHTML = '<span style="color:#444; font-size:10px; align-self:center;">NO MANUAL CONTROLS</span>';
             }
         }
 
-        // 2. SWITCH LOGIC
+        // --- SWITCHER UI ---
+        function renderSwitcher() {
+            switcher.innerHTML = '';
+            let isFirst = true;
+
+            VISUALIZERS.forEach((VizClass, name) => {
+                const btn = document.createElement('button');
+                btn.className = 'viz-btn';
+                btn.innerText = name;
+                
+                if (isFirst) {
+                    btn.classList.add('active');
+                    isFirst = false;
+                }
+
+                btn.addEventListener('click', () => {
+                    switchViz(name, btn);
+                    showUI();
+                });
+                switcher.appendChild(btn);
+            });
+        }
+
         function switchViz(name, btnElement) {
-            // Update Active State
             document.querySelectorAll('.viz-btn').forEach(b => b.classList.remove('active'));
             if(btnElement) btnElement.classList.add('active');
 
@@ -356,61 +337,55 @@
             console.log(`Switching to: ${name}`);
 
             try {
-                // Note: Ideally we should .dispose() the old viz here if methods existed
-                // to prevent memory leaks (event listeners, geometries, etc).
+                // Cleanup (Simple renderer dispose for now)
+                if (currentViz && currentViz.renderer) {
+                    // Optional: currentViz.renderer.dispose();
+                    // In a perfect world we would call currentViz.dispose() to clean up geometries
+                }
+                
                 currentViz = new VizClass();
+                
+                // GENERATE THE CONTROLS FOR THIS NEW VIZ
                 renderVizControls(currentViz);
+
             } catch (err) {
                 console.error("Viz Load Error:", err);
             }
         }
 
-        // 3. START SEQUENCE
+        // --- INITIALIZATION ---
         startBtn.addEventListener('click', async () => {
             await engine.init();
             
-            // UI Transition
             startOverlay.style.opacity = '0';
             setTimeout(() => startOverlay.style.display = 'none', 500);
-            dashboard.style.display = 'grid'; // Show Dashboard
+            
+            dashboard.style.display = 'grid'; // Enable grid layout
+            setTimeout(showUI, 100); // Trigger fade-in
 
-            // Init Default Viz (First in Map)
             renderSwitcher();
+            
+            // Auto-load first viz
             const firstKey = VISUALIZERS.keys().next().value;
-            const firstBtn = switcher.querySelector('.viz-btn'); // Get first generated button
+            const firstBtn = switcher.querySelector('.viz-btn');
             switchViz(firstKey, firstBtn);
 
             loop();
         });
 
-        // 4. GAIN CONTROL
         document.getElementById('gainSlider').addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
             engine.setGain(val);
             document.getElementById('gainVal').innerText = val;
+            showUI();
         });
 
-        // 5. ANIMATION LOOP
         function loop() {
             requestAnimationFrame(loop);
             engine.update();
             
             const m = engine.getMetrics();
             const raw = engine.getRawData();
-
-            // Update Meters
-            elBass.style.width = `${m.bass * 100}%`;
-            elMid.style.width = `${m.mid * 100}%`;
-            elTreble.style.width = `${m.treble * 100}%`;
-            elWub.style.width = `${m.centroid * 100}%`;
-            
-            // UPDATED: Kick Flash
-            if (m.isKick) elKick.classList.add('hit'); 
-            else elKick.classList.remove('hit');
-
-            // UPDATED: Snare Flash
-            if (m.isSnare) elSnare.classList.add('hit');
-            else elSnare.classList.remove('hit');
 
             // Render Viz
             if (currentViz) currentViz.animate(m, raw);
