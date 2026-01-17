@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Audio Metrics Debug Panel</title>
+    
+    <script type="importmap">
+      {
+        "imports": {
+          "meyda": "https://esm.sh/meyda@5.6.0"
+        }
+      }
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body { 
+            background: #0a0a0a; 
+            color: #00ff88; 
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        #start-btn {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 40px;
+            font-size: 20px;
+            background: #00ff88;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: bold;
+            z-index: 1000;
+        }
+
+        #start-btn:hover {
+            background: #00ffff;
+        }
+
+        #debug-panel {
+            display: none;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #00ffff;
+            text-shadow: 0 0 10px #00ffff;
+        }
+
+        h2 {
+            margin-top: 30px;
+            margin-bottom: 10px;
+            color: #ff0088;
+            font-size: 12px;
+            letter-spacing: 2px;
+        }
+
+        .metric-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            gap: 15px;
+        }
+
+        .metric-label {
+            width: 140px;
+            text-align: right;
+            color: #888;
+            font-size: 12px;
+        }
+
+        .bar-container {
+            flex: 1;
+            height: 20px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .bar-fill {
+            height: 100%;
+            transition: width 0.05s linear;
+            border-radius: 2px;
+        }
+
+        .bar-bass { background: linear-gradient(90deg, #ff0055, #ff3377); }
+        .bar-mid { background: linear-gradient(90deg, #ffaa00, #ffcc44); }
+        .bar-high { background: linear-gradient(90deg, #00ccff, #00ffff); }
+        .bar-beat { background: linear-gradient(90deg, #00ff88, #44ffaa); }
+        .bar-presence { background: linear-gradient(90deg, #8800ff, #aa44ff); }
+        .bar-lfo { background: linear-gradient(90deg, #0088ff, #00aaff); }
+        .bar-ramp { background: linear-gradient(90deg, #ff8800, #ffaa44); }
+
+        .metric-value {
+            width: 80px;
+            text-align: right;
+            font-weight: bold;
+            color: #00ff88;
+        }
+
+        .hit-indicator {
+            width: 140px;
+            text-align: right;
+            padding: 4px 8px;
+            border-radius: 3px;
+            transition: all 0.1s;
+            font-weight: bold;
+        }
+
+        .hit-indicator.active {
+            background: #00ff88;
+            color: #000;
+            box-shadow: 0 0 20px #00ff88;
+        }
+
+        .controls {
+            margin-top: 40px;
+            padding: 20px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 5px;
+        }
+
+        .controls label {
+            display: block;
+            margin-bottom: 10px;
+            color: #888;
+        }
+
+        .controls input[type="range"] {
+            width: 100%;
+            margin-top: 5px;
+        }
+
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #0a1a0a;
+            border-left: 3px solid #00ff88;
+            color: #888;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .bpm-display {
+            font-size: 48px;
+            text-align: center;
+            color: #00ff88;
+            text-shadow: 0 0 20px #00ff88;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <button id="start-btn">START AUDIO DEBUG</button>
+
+    <div id="debug-panel">
+        <h1>🔊 AUDIO DEBUG PANEL</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 10px;">Real-time audio metrics visualization</p>
+        <p style="text-align: center; color: #ff8800; margin-bottom: 20px; font-size: 12px;">
+            ⚠️ If all metrics show 0, open the browser console (F12) to see diagnostic logs
+        </p>
+
+        <!-- BPM Display -->
+        <div class="bpm-display" id="bpm-display">-- BPM</div>
+        
+        <div style="text-align: center; margin: 10px 0; padding: 10px; background: #1a1a1a; border-radius: 5px;">
+            <span style="color: #888; font-size: 12px;">Audio Status: </span>
+            <span id="audio-status" style="color: #ff0055; font-weight: bold;">WAITING...</span>
+        </div>
+
+        <!-- BEAT Section -->
+        <h2>BEAT</h2>
+        <div class="metric-row">
+            <span class="metric-label">OnBeat</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-beat" id="onbeat-bar"></div>
+            </div>
+            <span class="metric-value" id="onbeat-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">BPM</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-beat" id="bpm-bar"></div>
+            </div>
+            <span class="metric-value" id="bpm-val">0</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">Beat Phase</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-beat" id="phase-bar"></div>
+            </div>
+            <span class="metric-value" id="phase-val">0.000</span>
+        </div>
+
+        <!-- HITS Section -->
+        <h2>HITS</h2>
+        <div class="metric-row">
+            <span class="hit-indicator" id="bass-hit">Bass Hit</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-bass" id="basshit-bar"></div>
+            </div>
+            <span class="metric-value" id="basshit-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="hit-indicator" id="mid-hit">Mid Hit</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-mid" id="midhit-bar"></div>
+            </div>
+            <span class="metric-value" id="midhit-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="hit-indicator" id="high-hit">High Hit</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-high" id="highhit-bar"></div>
+            </div>
+            <span class="metric-value" id="highhit-val">0.000</span>
+        </div>
+
+        <!-- PRESENCE Section -->
+        <h2>PRESENCE</h2>
+        <div class="metric-row">
+            <span class="metric-label">Bass Presence</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-presence" id="basspres-bar"></div>
+            </div>
+            <span class="metric-value" id="basspres-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">Mid Presence</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-presence" id="midpres-bar"></div>
+            </div>
+            <span class="metric-value" id="midpres-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">High Presence</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-presence" id="highpres-bar"></div>
+            </div>
+            <span class="metric-value" id="highpres-val">0.000</span>
+        </div>
+
+        <!-- TIME Section -->
+        <h2>TIME</h2>
+        <div class="metric-row">
+            <span class="metric-label">Bass Time</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-bass" id="basstime-bar"></div>
+            </div>
+            <span class="metric-value" id="basstime-val">0 ms</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">Mid Time</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-mid" id="midtime-bar"></div>
+            </div>
+            <span class="metric-value" id="midtime-val">0 ms</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">High Time</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-high" id="hightime-bar"></div>
+            </div>
+            <span class="metric-value" id="hightime-val">0 ms</span>
+        </div>
+
+        <!-- LFOs Section -->
+        <h2>LFOs</h2>
+        <div class="metric-row">
+            <span class="metric-label">LFO 2</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-lfo" id="lfo2-bar"></div>
+            </div>
+            <span class="metric-value" id="lfo2-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">LFO 4</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-lfo" id="lfo4-bar"></div>
+            </div>
+            <span class="metric-value" id="lfo4-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">LFO 8</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-lfo" id="lfo8-bar"></div>
+            </div>
+            <span class="metric-value" id="lfo8-val">0.000</span>
+        </div>
+
+        <!-- RAMPS Section -->
+        <h2>RAMPS</h2>
+        <div class="metric-row">
+            <span class="metric-label">Ramp 2</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-ramp" id="ramp2-bar"></div>
+            </div>
+            <span class="metric-value" id="ramp2-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">Ramp 4</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-ramp" id="ramp4-bar"></div>
+            </div>
+            <span class="metric-value" id="ramp4-val">0.000</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-label">Ramp 8</span>
+            <div class="bar-container">
+                <div class="bar-fill bar-ramp" id="ramp8-bar"></div>
+            </div>
+            <span class="metric-value" id="ramp8-val">0.000</span>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <label>
+                Input Gain: <span id="gain-display">2.5</span>
+                <input type="range" id="gain-slider" min="0" max="10" step="0.1" value="2.5">
+            </label>
+        </div>
+
+        <!-- Info -->
+        <div class="info">
+            <strong>About these metrics:</strong><br>
+            <strong>BEAT:</strong> OnBeat = confidence we're on the beat, BPM = detected tempo, Phase = position in beat cycle<br>
+            <strong>HITS:</strong> Transient detection in each frequency band (flash when detected)<br>
+            <strong>PRESENCE:</strong> Long-term average energy (smoothed over 3-5 seconds)<br>
+            <strong>TIME:</strong> Milliseconds since last significant event in each band<br>
+            <strong>LFOs:</strong> Synthetic sine waves at musical tempos (useful for ambient sections)<br>
+            <strong>RAMPS:</strong> Sawtooth waves at musical tempos (useful for linear animations)
+        </div>
+    </div>
+
+    <script type="module">
+        import { AudioAnalyzer } from './audio-engine-v7.js';
+
+        const engine = new AudioAnalyzer();
+        
+        const startBtn = document.getElementById('start-btn');
+        const debugPanel = document.getElementById('debug-panel');
+        const audioStatus = document.getElementById('audio-status');
+        
+        // UI Elements
+        const els = {
+            bpmDisplay: document.getElementById('bpm-display'),
+            
+            onbeat: { bar: document.getElementById('onbeat-bar'), val: document.getElementById('onbeat-val') },
+            bpm: { bar: document.getElementById('bpm-bar'), val: document.getElementById('bpm-val') },
+            phase: { bar: document.getElementById('phase-bar'), val: document.getElementById('phase-val') },
+            
+            bassHit: { bar: document.getElementById('basshit-bar'), val: document.getElementById('basshit-val'), indicator: document.getElementById('bass-hit') },
+            midHit: { bar: document.getElementById('midhit-bar'), val: document.getElementById('midhit-val'), indicator: document.getElementById('mid-hit') },
+            highHit: { bar: document.getElementById('highhit-bar'), val: document.getElementById('highhit-val'), indicator: document.getElementById('high-hit') },
+            
+            bassPresence: { bar: document.getElementById('basspres-bar'), val: document.getElementById('basspres-val') },
+            midPresence: { bar: document.getElementById('midpres-bar'), val: document.getElementById('midpres-val') },
+            highPresence: { bar: document.getElementById('highpres-bar'), val: document.getElementById('highpres-val') },
+            
+            bassTime: { bar: document.getElementById('basstime-bar'), val: document.getElementById('basstime-val') },
+            midTime: { bar: document.getElementById('midtime-bar'), val: document.getElementById('midtime-val') },
+            highTime: { bar: document.getElementById('hightime-bar'), val: document.getElementById('hightime-val') },
+            
+            lfo2: { bar: document.getElementById('lfo2-bar'), val: document.getElementById('lfo2-val') },
+            lfo4: { bar: document.getElementById('lfo4-bar'), val: document.getElementById('lfo4-val') },
+            lfo8: { bar: document.getElementById('lfo8-bar'), val: document.getElementById('lfo8-val') },
+            
+            ramp2: { bar: document.getElementById('ramp2-bar'), val: document.getElementById('ramp2-val') },
+            ramp4: { bar: document.getElementById('ramp4-bar'), val: document.getElementById('ramp4-val') },
+            ramp8: { bar: document.getElementById('ramp8-bar'), val: document.getElementById('ramp8-val') }
+        };
+
+        startBtn.addEventListener('click', async () => {
+            await engine.init();
+            startBtn.style.display = 'none';
+            debugPanel.style.display = 'block';
+            loop();
+        });
+
+        document.getElementById('gain-slider').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            engine.setGain(val);
+            document.getElementById('gain-display').textContent = val.toFixed(1);
+        });
+
+        function updateMetric(element, value, isPercentage = true, decimals = 3) {
+            if (element.bar) {
+                element.bar.style.width = `${value * 100}%`;
+            }
+            if (element.val) {
+                element.val.textContent = value.toFixed(decimals);
+            }
+        }
+
+        function loop() {
+            requestAnimationFrame(loop);
+            engine.update();
+            
+            const m = engine.getMetrics();
+            
+            // Update status indicator
+            const hasAudio = m.vol > 0.001 || m.bass > 0 || m.mid > 0 || m.treble > 0;
+            if (hasAudio) {
+                audioStatus.textContent = '🟢 ACTIVE';
+                audioStatus.style.color = '#00ff88';
+            } else {
+                audioStatus.textContent = '🔴 SILENT (speak or play music!)';
+                audioStatus.style.color = '#ff0055';
+            }
+            
+            // BPM Display
+            els.bpmDisplay.textContent = m.bpm > 0 ? `${m.bpm} BPM` : '-- BPM';
+            
+            // Beat
+            updateMetric(els.onbeat, m.onBeat);
+            updateMetric(els.bpm, Math.min(1, m.bpm / 200));
+            els.bpm.val.textContent = m.bpm;
+            updateMetric(els.phase, m.beatPhase);
+            
+            // Hits
+            updateMetric(els.bassHit, m.bassHit);
+            updateMetric(els.midHit, m.midHit);
+            updateMetric(els.highHit, m.highHit);
+            
+            // Hit indicators
+            els.bassHit.indicator.classList.toggle('active', m.bassHit > 0.7);
+            els.midHit.indicator.classList.toggle('active', m.midHit > 0.7);
+            els.highHit.indicator.classList.toggle('active', m.highHit > 0.7);
+            
+            // Presence
+            updateMetric(els.bassPresence, m.bassPresence);
+            updateMetric(els.midPresence, m.midPresence);
+            updateMetric(els.highPresence, m.highPresence);
+            
+            // Time (cap at 2000ms for display)
+            const maxTime = 2000;
+            updateMetric(els.bassTime, Math.min(1, m.bassTime / maxTime));
+            updateMetric(els.midTime, Math.min(1, m.midTime / maxTime));
+            updateMetric(els.highTime, Math.min(1, m.highTime / maxTime));
+            els.bassTime.val.textContent = `${Math.round(m.bassTime)} ms`;
+            els.midTime.val.textContent = `${Math.round(m.midTime)} ms`;
+            els.highTime.val.textContent = `${Math.round(m.highTime)} ms`;
+            
+            // LFOs
+            updateMetric(els.lfo2, m.lfo2);
+            updateMetric(els.lfo4, m.lfo4);
+            updateMetric(els.lfo8, m.lfo8);
+            
+            // Ramps
+            updateMetric(els.ramp2, m.ramp2);
+            updateMetric(els.ramp4, m.ramp4);
+            updateMetric(els.ramp8, m.ramp8);
+        }
+    </script>
+</body>
+</html>
