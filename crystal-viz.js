@@ -9,6 +9,14 @@ export class CrystalViz {
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         
+        // --- MANUAL CONFIG ---
+        this.config = {
+            rotSpeed: 0.004,
+            amplitude: 8.0,
+            baseGlow: 0.2,
+            wireOpacity: 0.4
+        };
+
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x050505); 
 
@@ -19,7 +27,6 @@ export class CrystalViz {
         const ambientLight = new THREE.AmbientLight(0x404040);
         this.scene.add(ambientLight);
 
-        // Boosted Intensity (2 -> 5) for dramatic rim lighting
         const pointLight1 = new THREE.PointLight(0xff0055, 5, 100);
         pointLight1.position.set(20, 20, 20);
         this.scene.add(pointLight1);
@@ -36,18 +43,45 @@ export class CrystalViz {
         window.addEventListener('resize', () => this.resize());
     }
 
+    getParams() {
+        return [
+            {
+                name: 'Rotation',
+                min: 0, max: 0.05, step: 0.001, value: this.config.rotSpeed,
+                onChange: (v) => this.config.rotSpeed = v
+            },
+            {
+                name: 'Spikes',
+                min: 0, max: 20, step: 0.5, value: this.config.amplitude,
+                onChange: (v) => this.config.amplitude = v
+            },
+            {
+                name: 'Glow',
+                min: 0, max: 2, step: 0.1, value: this.config.baseGlow,
+                onChange: (v) => this.config.baseGlow = v
+            },
+            {
+                name: 'Wireframe',
+                min: 0, max: 1, step: 0.05, value: this.config.wireOpacity,
+                onChange: (v) => {
+                    this.config.wireOpacity = v;
+                    if(this.wireframe) this.wireframe.material.opacity = v;
+                }
+            }
+        ];
+    }
+
     initGeometry() {
         // 1. THE CORE
-        const geometry = new THREE.IcosahedronGeometry(10, 15); // High detail for smooth spikes
+        const geometry = new THREE.IcosahedronGeometry(10, 15); 
         this.originalPositions = geometry.attributes.position.array.slice();
         
-        // THE FIX: Emissive Material (Self-Glowing)
         const material = new THREE.MeshStandardMaterial({ 
-            color: 0x111111,      // Dark base
-            emissive: 0xaa0033,   // Deep Red Glow from within
-            emissiveIntensity: 0.5, // Base glow strength
-            roughness: 0.1,       // Very shiny
-            metalness: 0.9,       // Metallic
+            color: 0x111111,      
+            emissive: 0xaa0033,   
+            emissiveIntensity: 0.5, 
+            roughness: 0.1,       
+            metalness: 0.9,       
             flatShading: true 
         });
 
@@ -60,24 +94,23 @@ export class CrystalViz {
             color: 0xffffff, 
             wireframe: true,
             transparent: true,
-            opacity: 0.4 // Increased visibility (was 0.1)
+            opacity: this.config.wireOpacity
         });
         this.wireframe = new THREE.Mesh(wireGeo, wireMat);
         this.group.add(this.wireframe);
     }
 
     animate(metrics, rawData) {
-        this.group.rotation.x += 0.002;
-        this.group.rotation.y += 0.004;
+        this.group.rotation.x += this.config.rotSpeed * 0.5;
+        this.group.rotation.y += this.config.rotSpeed;
         
         // REACTIVE PULSE
         const s = 1 + (metrics.bass * 0.1);
         this.wireframe.scale.set(s, s, s);
-        this.wireframe.rotation.y -= 0.002; 
+        this.wireframe.rotation.y -= this.config.rotSpeed * 0.5; 
 
-        // THE FIX: Make it FLASH on the beat
-        // Base 0.2 + Bass Kick power
-        this.mesh.material.emissiveIntensity = 0.2 + (metrics.bass * 2.0);
+        // FLASH: Manual Base + Bass Kick
+        this.mesh.material.emissiveIntensity = this.config.baseGlow + (metrics.bass * 2.0);
 
         // --- VERTEX DISPLACEMENT ---
         const positionAttribute = this.mesh.geometry.attributes.position;
@@ -88,14 +121,13 @@ export class CrystalViz {
             const oy = this.originalPositions[i * 3 + 1];
             const oz = this.originalPositions[i * 3 + 2];
 
-            // Use lower frequencies for "Breathing" effect
             const audioIndex = (i % Math.floor(rawData.length / 4)); 
             const audioValue = rawData[audioIndex] / 255.0;
 
             vertex.set(ox, oy, oz).normalize();
             
-            // Spikes grow with volume
-            const dist = 10 + (audioValue * 8 * metrics.bass); 
+            // Spikes: 10 + (Audio * Manual Amp * Bass)
+            const dist = 10 + (audioValue * this.config.amplitude * metrics.bass); 
             
             vertex.multiplyScalar(dist);
             positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);

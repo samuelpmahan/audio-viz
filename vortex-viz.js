@@ -11,39 +11,64 @@ export class ParticleTunnel {
         this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         
+        // --- MANUAL CONFIG ---
+        this.config = {
+            baseSpeed: 2.0,
+            bloomStrength: 1.5,
+            glitchAmount: 0.002,
+            rotationSens: 0.2
+        };
+
         this.scene = new THREE.Scene();
-        // Fog creates depth fading
         this.scene.fog = new THREE.FogExp2(0x000000, 0.002);
 
-        // 1. SETUP CAMERA (Must happen BEFORE Composer)
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.camera.position.z = 100;
 
-        // 2. SETUP COMPOSER (Post-Processing)
+        // --- POST PROCESSING ---
         this.composer = new EffectComposer(this.renderer);
-        
-        // Layer 1: The Scene
-        const renderPass = new RenderPass(this.scene, this.camera);
-        this.composer.addPass(renderPass);
+        this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-        // Layer 2: Unreal Bloom (Neon Glow)
         this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-        this.bloomPass.strength = 1.5; 
+        this.bloomPass.strength = this.config.bloomStrength; 
         this.bloomPass.radius = 0.1;   
         this.bloomPass.threshold = 0.2;  
         this.composer.addPass(this.bloomPass);
 
-        // Layer 3: RGB Shift (Glitch)
         this.rgbShiftPass = new ShaderPass(RGBShiftShader);
         this.rgbShiftPass.uniforms['amount'].value = 0.002; 
         this.composer.addPass(this.rgbShiftPass);
 
-        // 3. SETUP PARTICLES
         this.particles = null;
         this.count = 2000; 
         this.initParticles();
 
         window.addEventListener('resize', () => this.resize());
+    }
+
+    getParams() {
+        return [
+            {
+                name: 'Speed',
+                min: 0, max: 20, step: 0.1, value: this.config.baseSpeed,
+                onChange: (v) => this.config.baseSpeed = v
+            },
+            {
+                name: 'Bloom',
+                min: 0, max: 4, step: 0.1, value: this.config.bloomStrength,
+                onChange: (v) => this.config.bloomStrength = v
+            },
+            {
+                name: 'Glitch',
+                min: 0, max: 0.05, step: 0.001, value: this.config.glitchAmount,
+                onChange: (v) => this.config.glitchAmount = v
+            },
+            {
+                name: 'Rot Sens',
+                min: 0, max: 1.0, step: 0.01, value: this.config.rotationSens,
+                onChange: (v) => this.config.rotationSens = v
+            }
+        ];
     }
 
     initParticles() {
@@ -76,18 +101,18 @@ export class ParticleTunnel {
         });
 
         this.particles = new THREE.Points(geometry, material);
-        this.particles.frustumCulled = false; // Prevents "Ghost in the machine" bug
+        this.particles.frustumCulled = false; 
         this.scene.add(this.particles);
     }
 
     animate(metrics) {
         // --- 1. MOVEMENT & PHYSICS ---
-        // Rotate Tunnel based on Wub (Centroid)
-        const rotationSpeed = (metrics.centroid - 0.5) * 0.2; 
+        // Rotate Tunnel: Wub * Manual Sensitivity
+        const rotationSpeed = (metrics.centroid - 0.5) * this.config.rotationSens; 
         this.particles.rotation.z += rotationSpeed;
 
-        // Warp Speed based on Volume
-        const speed = 2 + (metrics.vol * 20); 
+        // Warp Speed: Manual Base + Volume
+        const speed = this.config.baseSpeed + (metrics.vol * 20); 
         this.camera.position.z -= speed;
 
         // Infinite Loop Logic
@@ -98,22 +123,18 @@ export class ParticleTunnel {
             
             if (positions[i3 + 2] > this.camera.position.z - 20) {
                 positions[i3 + 2] = this.camera.position.z - 1000 - (Math.random() * 500);
-                
-                // Optional: Randomize X/Y again so patterns don't repeat exactly
                 const angle = Math.random() * Math.PI * 2;
-                const radius = 40 + Math.random() * 40; // Match your new radius
-                positions[i3] = Math.cos(angle) * radius; // X
-                positions[i3 + 1] = Math.sin(angle) * radius; // Y
+                const radius = 40 + Math.random() * 40; 
+                positions[i3] = Math.cos(angle) * radius; 
+                positions[i3 + 1] = Math.sin(angle) * radius; 
             }
         }
         this.particles.geometry.attributes.position.needsUpdate = true;
 
         // --- 2. VISUAL REACTIVITY ---
-        // Color tinting
         this.particles.material.color.setHSL(metrics.centroid * 0.8, 1.0, 0.5); 
         
-        // Shake on KICK
-        if (metrics.hit) {
+        if (metrics.isKick) { // Updated to V7 isKick
             this.camera.position.x = (Math.random() - 0.5) * 2;
             this.camera.position.y = (Math.random() - 0.5) * 2;
             this.particles.material.size = 3.0; 
@@ -124,17 +145,18 @@ export class ParticleTunnel {
         }
 
         // --- 3. POST-PROCESSING UPDATES ---
-        // Bloom Pulse
-        this.bloomPass.strength = 1.2 + (metrics.bass * 0.5);
+        // Bloom Pulse: Manual + Bass
+        this.bloomPass.strength = this.config.bloomStrength + (metrics.bass * 0.5);
 
-        // RGB Glitch on Beat
-        if (metrics.hit) {
-            this.rgbShiftPass.uniforms['amount'].value = 0.02; 
+        // RGB Glitch: Manual + Kick
+        if (metrics.isKick) {
+            this.rgbShiftPass.uniforms['amount'].value = 0.02 + this.config.glitchAmount; 
         } else {
-            this.rgbShiftPass.uniforms['amount'].value += (0.002 - this.rgbShiftPass.uniforms['amount'].value) * 0.1;
+            // Decay back to manual baseline
+            const current = this.rgbShiftPass.uniforms['amount'].value;
+            this.rgbShiftPass.uniforms['amount'].value += (this.config.glitchAmount - current) * 0.1;
         }
 
-        // --- 4. RENDER ---
         this.composer.render(); 
     }
 
