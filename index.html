@@ -243,8 +243,6 @@
 
     <script type="module">
         import { AudioAnalyzer } from './audio-engine-v7.js';
-        
-        // Import Visualizers
         import { ParticleTunnel } from './vortex-viz.js';
         import { JoyViz } from './joy-viz.js';
         import { ConstellationViz } from './constellation-viz.js';
@@ -253,9 +251,10 @@
         import { ParticleTunnel2 } from './vortex2-viz.js';
         import { Landslide } from './landslide-viz.js';
         import { HotelCalifornia } from './deserthighway-viz.js'
+        import { PulseGrid } from './pulse-grid-viz.js'
+        import { LiquidMetal } from './liquid-viz.js'
 
         // --- CONFIGURATION MAP ---
-        // Add new visualizers here. Key = Name, Value = Class
         const VISUALIZERS = new Map([
             ['Vortex', ParticleTunnel],
             ['Joy Division', JoyViz],
@@ -264,7 +263,9 @@
             ['Plasma', CrystalViz2],
             ['Vortex2', ParticleTunnel2],
             ['Landslide', Landslide],
-            ['DesertHighway', HotelCalifornia]
+            ['DesertHighway', HotelCalifornia],
+            ['PulseGrid', PulseGrid],
+            ['LiquidMetal', LiquidMetal]
         ]);
 
         const engine = new AudioAnalyzer();
