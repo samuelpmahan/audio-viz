@@ -172,10 +172,19 @@ export class LiquidMetal {
         
         uniforms['colorPhase'].value = metrics.centroid * Math.PI * 2;
 
-        this.mesh.rotation.y += this.config.rotSpeed;
+        this.mesh.rotation.y += this.config.rotSpeed * (1.0 + metrics.lfo4 * 0.5);
+        this.mesh.rotation.x = Math.sin(metrics.lfo8 * Math.PI * 2) * 0.2;
         this.mesh.rotation.z += this.config.rotSpeed * 0.5;
         
         this.bloomPass.strength = this.config.bloomStrength + (metrics.bass * 0.3);
+
+        const targetScale = 1.0 + (metrics.bassHit * 0.3) + (metrics.bassPresence * 0.1);
+        this.mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.15);
+
+        const orbitRadius = 5;
+        this.camera.position.x = Math.sin(metrics.lfo8 * Math.PI * 2) * orbitRadius;
+        this.camera.position.y = Math.cos(metrics.lfo4 * Math.PI * 2) * orbitRadius * 0.5;
+        this.camera.lookAt(0, 0, 0);
 
         this.composer.render();
     }

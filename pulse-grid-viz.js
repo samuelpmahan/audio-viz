@@ -42,6 +42,7 @@ export class PulseGrid {
 
         this.initGrids();
         this.initObjects();
+        this.initSun();
 
         window.addEventListener('resize', () => this.resize());
     }
@@ -97,6 +98,50 @@ export class PulseGrid {
         
         this.floor.originalPos = this.floor.geometry.attributes.position.array.slice();
         this.ceiling.originalPos = this.ceiling.geometry.attributes.position.array.slice();
+    }
+
+    initSun() {
+        this.sunGroup = new THREE.Group();
+        this.sunGroup.position.set(0, 15, -280);
+        
+        // Core sun disc
+        const sunGeo = new THREE.CircleGeometry(40, 64);
+        const sunMat = new THREE.MeshBasicMaterial({ 
+            color: 0xffaa00,
+            transparent: true,
+            opacity: 1.0
+        });
+        const sunDisc = new THREE.Mesh(sunGeo, sunMat);
+        this.sunGroup.add(sunDisc);
+        
+        // Outer glow layers
+        for (let i = 1; i <= 4; i++) {
+            const glowGeo = new THREE.CircleGeometry(40 + i * 15, 64);
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: 0xff6600,
+                transparent: true,
+                opacity: 0.3 / i,
+                blending: THREE.AdditiveBlending
+            });
+            const glow = new THREE.Mesh(glowGeo, glowMat);
+            glow.position.z = -0.1 * i;
+            this.sunGroup.add(glow);
+        }
+        
+        // Horizontal slice lines (the synthwave signature)
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0x0a0010 }); // Match background
+        for (let i = 0; i < 8; i++) {
+            const y = -30 + i * 5; // Bottom half only
+            if (y < 0) {
+                const lineGeo = new THREE.PlaneGeometry(100, 2);
+                const line = new THREE.Mesh(lineGeo, lineMat);
+                line.position.y = y;
+                line.position.z = 0.1;
+                this.sunGroup.add(line);
+            }
+        }
+        
+        this.scene.add(this.sunGroup);
     }
 
     initObjects() {
@@ -169,6 +214,15 @@ export class PulseGrid {
             this.camera.position.y += 2.0; 
         }
 
+        if (this.sunGroup) {
+            const sunScale = 1.0 + metrics.bassHit * 0.2;
+            this.sunGroup.scale.setScalar(sunScale);
+            
+            // Shift sun color with palette
+            const sunHue = 0.08 + Math.sin(this.paletteTime) * 0.05; // Orange range
+            this.sunGroup.children[0].material.color.setHSL(sunHue, 1.0, 0.5);
+        }
+
         // Spawn Spikes
         if (metrics.midHit > 0.6 && Math.random() > 0.5) {
             this.spawnObject();
@@ -182,10 +236,16 @@ export class PulseGrid {
             if (wave.z > 100 || wave.strength < 0.01) this.shockwaves.splice(i, 1);
         }
 
+        const targetFOV = this.config.fov + (metrics.bassHit * 15) - (metrics.bassPresence * 5);
+        this.camera.fov += (targetFOV - this.camera.fov) * 0.15;
+        this.camera.updateProjectionMatrix();
+
         // 3. COLOR PALETTE CALCULATION
+        const hue = 0.8 + (metrics.centroid * 0.4); // Purple → Cyan shift
+        const baseColor = new THREE.Color().setHSL(hue % 1, 0.9, 0.5);
         const color1 = new THREE.Color(0xff00cc); // Magenta
         const color2 = new THREE.Color(0x00aaff); // Cyan
-        const baseColor = new THREE.Color().lerpColors(color1, color2, (Math.sin(this.paletteTime) + 1) / 2);
+        //const baseColor = new THREE.Color().lerpColors(color1, color2, (Math.sin(this.paletteTime) + 1) / 2);
 
         // 4. UPDATE GRIDS
         this.displaceAndColor(this.floor, 1.0, baseColor, metrics);
@@ -205,6 +265,15 @@ export class PulseGrid {
             // Pulse Width on beat (Warp effect)
             const s = 1.0 + (metrics.mid * 0.3);
             obj.scale.set(s, 1, s); // Don't scale Y, only thickness
+
+            this.shockwaves.forEach(wave => {
+                const dist = Math.abs(obj.position.z - wave.z);
+                if (dist < wave.width * 2) {
+                    const bump = Math.exp(-2 * (dist / wave.width) ** 2) * wave.strength;
+                    obj.position.y += bump * 10 * (obj.rotation.z === 0 ? 1 : -1);
+                }
+            });
+
             
             // Reset
             if (obj.position.z > 100) {
@@ -212,6 +281,8 @@ export class PulseGrid {
                 obj.position.y = -1000;
             }
         });
+
+        this.scene.fog.far = 250 - (metrics.bassPresence * 100);
 
         // 6. CAMERA
         this.camera.position.y += (15 - this.camera.position.y) * 0.1;
