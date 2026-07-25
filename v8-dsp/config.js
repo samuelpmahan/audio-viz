@@ -7,7 +7,6 @@ import { LATENCY_MODES, LFO_CLOCKS, LOW_CONFIDENCE_BEHAVIORS } from './presentat
 export const STORAGE_KEY = 'audioViz.v8.config';
 
 export const DEFAULT_CONFIG = Object.freeze({
-  engine: 'v8',
   analysis: 'worklet-robust',
   normalization: 'fast-slow-envelope',
   classifier: 'band-dominance',
@@ -30,7 +29,7 @@ export const CONFIG_OPTIONS = Object.freeze({
 });
 
 export const PRESETS = Object.freeze({
-  'V7 baseline': { analysis: 'v7', normalization: 'v7-peak', classifier: 'centroid', rhythm: 'v7-interval-average', lfoClock: 'v7-bpm', lowConfidence: 'hold', latency: 'none' },
+  'V7-shaped worklet baseline': { analysis: 'v7', normalization: 'v7-peak', classifier: 'centroid', rhythm: 'v7-interval-average', lfoClock: 'v7-bpm', lowConfidence: 'hold', latency: 'none' },
   'low-latency': { analysis: 'worklet-flux', normalization: 'fast-slow-envelope', classifier: 'centroid', rhythm: 'interval-median', lfoClock: 'free-running', lowConfidence: 'free-running', latency: 'none' },
   'high-precision': { analysis: 'worklet-robust', normalization: 'robust-percentile', classifier: 'band-dominance', rhythm: 'phase-follower', lfoClock: 'phase-follower', lowConfidence: 'reduce-depth', latency: 'output-latency' },
   expressive: { analysis: 'worklet-multiband', normalization: 'fast-slow-envelope', classifier: 'simultaneous', rhythm: 'tempo-candidates', lfoClock: 'free-running', lowConfidence: 'free-running', latency: 'base-latency' },
@@ -46,7 +45,6 @@ function finiteNumber(value, fallback, minimum, maximum) {
 export function validateConfig(input = {}) {
   const config = { ...DEFAULT_CONFIG };
   for (const [key, values] of Object.entries(CONFIG_OPTIONS)) if (values.includes(input[key])) config[key] = input[key];
-  config.engine = input.engine === 'v7' ? 'v7' : 'v8';
   config.manualOffsetMs = finiteNumber(input.manualOffsetMs, DEFAULT_CONFIG.manualOffsetMs, -500, 500);
   config.fixedBpm = finiteNumber(input.fixedBpm, DEFAULT_CONFIG.fixedBpm, 30, 300);
   return config;
@@ -58,7 +56,6 @@ export function parseConfig({ search = '', stored = null } = {}) {
   const params = new URLSearchParams(search);
   const query = {};
   for (const key of Object.keys(CONFIG_OPTIONS)) if (params.has(key)) query[key] = params.get(key);
-  if (params.has('engine')) query.engine = params.get('engine');
   if (params.has('offset')) query.manualOffsetMs = params.get('offset');
   if (params.has('bpm')) query.fixedBpm = params.get('bpm');
   return validateConfig({ ...persisted, ...query });

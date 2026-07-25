@@ -211,11 +211,10 @@
     </div>
 
     <script type="module">
-        const engineParam = new URLSearchParams(location.search).get('engine');
-        let storedEngine = null;
-        try { storedEngine = JSON.parse(localStorage.getItem('audioViz.v8.config'))?.engine; } catch { /* ignore invalid developer state */ }
-        const useV8 = engineParam === 'v8' || (engineParam === null && storedEngine === 'v8');
-        const { AudioAnalyzer } = await import(useV8 ? './audio-engine-v8.js' : './audio-engine-v7.js');
+        const { selectTopLevelEngine } = await import('./v8-dsp/engine-selection.js');
+        const selectedEngine = selectTopLevelEngine(location.search);
+        const useV8 = selectedEngine.engine === 'v8';
+        const { AudioAnalyzer } = await import(selectedEngine.modulePath);
         
         // Import Visualizers
         import { ParticleTunnel } from './vortex-viz.js';

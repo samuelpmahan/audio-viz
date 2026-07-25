@@ -4,15 +4,47 @@ import { createDetector, v8Detectors } from '../eval/detectors/index.js';
 import { generateSyntheticFixtures } from '../eval/synthetic/generator.js';
 import { compareEventStreams, runFixture } from '../eval/runner.js';
 import { SequentialAnalysisCore } from '../v8-dsp/analysis-core.js';
-import { parseConfig } from '../v8-dsp/config.js';
+import { parseConfig, validateConfig } from '../v8-dsp/config.js';
+import { engineReloadUrl, selectTopLevelEngine } from '../v8-dsp/engine-selection.js';
 import { MetricsAdapter } from '../v8-dsp/metrics-adapter.js';
 import { LevelNormalizer } from '../v8-dsp/normalization.js';
+import { ModulationClock, PresentationQueue } from '../v8-dsp/presentation.js';
 import { RhythmTracker } from '../v8-dsp/rhythm.js';
 import { TransientInterpreter } from '../v8-dsp/transients.js';
 import { circularDistance } from '../v8-dsp/stats.js';
+import { AudioAnalyzer } from '../audio-engine-v8.js';
 
 const fixtures = generateSyntheticFixtures();
 const fixture = (name, rate = 48000) => fixtures.find((candidate) => candidate.id === `synthetic/${name}/${rate}`);
+
+function transientFrame(timeSec = 1) {
+  return {
+    sampleRate: 48000, frameEndSample: Math.round(timeSec * 48000), eventSample: Math.round(timeSec * 48000) - 1, timeSec,
+    rms: 0.2, centroidHz: 120, centroid: 0.005,
+    bands: { low: 0.2, mid: 0.01, high: 0.01 }, onset: { global: 2, low: 2, mid: 0, high: 0 },
+    decisions: { global: { triggered: true, score: 2 }, low: { triggered: true, score: 2 }, mid: { triggered: false, score: 0 }, high: { triggered: false, score: 0 } }
+  };
+}
+
+function analyzerHarness(config = {}) {
+  const analyzer = Object.create(AudioAnalyzer.prototype);
+  analyzer.config = validateConfig({ normalization: 'off', classifier: 'simultaneous', rhythm: 'off', lfoClock: 'disabled', latency: 'none', ...config });
+  analyzer.ctx = { currentTime: 1, baseLatency: 0.05, outputLatency: 0.08 };
+  analyzer.analyser = { getByteFrequencyData() {} };
+  analyzer.dataArray = new Uint8Array(8);
+  analyzer.normalizer = new LevelNormalizer(analyzer.config.normalization);
+  analyzer.interpreter = new TransientInterpreter(analyzer.config.classifier);
+  analyzer.rhythm = new RhythmTracker(analyzer.config.rhythm);
+  analyzer.modulation = new ModulationClock();
+  analyzer.adapter = new MetricsAdapter();
+  analyzer.metrics = analyzer.adapter.metrics;
+  analyzer.presentationQueue = new PresentationQueue();
+  analyzer.processingTimes = [];
+  analyzer.status = { processingMode: 'not-started', awaitingAnalysisReset: false };
+  analyzer.listeners = new Set();
+  analyzer.isInit = true;
+  return analyzer;
+}
 
 test('every retained V8 detector is deterministic, causal, and block-equivalent at 44.1/48 kHz', async () => {
   assert.deepEqual(v8Detectors.map((Detector) => Detector.id), ['v8-flux-v1', 'v8-multiband-v1', 'v8-robust-v1']);
@@ -103,4 +135,74 @@ test('query parameters override storage and invalid values fall back', () => {
   assert.equal(invalid.analysis, 'worklet-robust');
   assert.equal(invalid.normalization, 'fast-slow-envelope');
   assert.equal(invalid.fixedBpm, 300);
+});
+
+test('top-level engine selection is URL-only and persisted V8 state cannot change the parameterless V7 default', () => {
+  assert.deepEqual(selectTopLevelEngine(''), { engine: 'v7', modulePath: './audio-engine-v7.js' });
+  assert.deepEqual(selectTopLevelEngine('?engine=v7'), { engine: 'v7', modulePath: './audio-engine-v7.js' });
+  assert.deepEqual(selectTopLevelEngine('?engine=v8'), { engine: 'v8', modulePath: './audio-engine-v8.js' });
+  assert.equal(selectTopLevelEngine('?engine=invalid').engine, 'v7');
+  const persisted = parseConfig({ stored: JSON.stringify({ engine: 'v8', analysis: 'worklet-flux' }) });
+  assert.equal(persisted.analysis, 'worklet-flux');
+  assert.equal('engine' in persisted, false);
+  assert.equal(selectTopLevelEngine('').engine, 'v7');
+  assert.equal(engineReloadUrl('https://example.test/index.html?viz=terrain&analysis=worklet-flux', 'v7'), 'https://example.test/index.html?viz=terrain&engine=v7');
+  assert.equal(engineReloadUrl('https://example.test/index.html?viz=terrain&analysis=worklet-flux', 'v8'), 'https://example.test/index.html?viz=terrain&analysis=worklet-flux&engine=v8&debug=1');
+});
+
+test('presentation scheduling delays positive offsets, releases zero offsets immediately, and clamps negative offsets causally', () => {
+  const delayed = analyzerHarness({ latency: 'manual-offset', manualOffsetMs: 100 });
+  delayed.handleAnalysisMessage({ type: 'frames', frames: [transientFrame()], processingMs: null, blockSize: 128 });
+  delayed.update();
+  assert.equal(delayed.metrics.isKick, false);
+  assert.equal(delayed.presentationQueue.debugState().depth, 1);
+  delayed.ctx.currentTime = 1.099;
+  delayed.update();
+  assert.equal(delayed.metrics.isKick, false);
+  delayed.ctx.currentTime = 1.1;
+  delayed.update();
+  assert.equal(delayed.metrics.isKick, true);
+  assert.equal(delayed.presentationQueue.debugState().depth, 0);
+
+  const immediate = analyzerHarness({ latency: 'none' });
+  immediate.handleAnalysisMessage({ type: 'frames', frames: [transientFrame()], processingMs: null, blockSize: 128 });
+  immediate.update();
+  assert.equal(immediate.metrics.isKick, true);
+
+  const negative = analyzerHarness({ latency: 'manual-offset', manualOffsetMs: -100 });
+  negative.handleAnalysisMessage({ type: 'frames', frames: [transientFrame()], processingMs: null, blockSize: 128 });
+  negative.update();
+  assert.equal(negative.metrics.isKick, true);
+  assert.ok(negative.adapter.recentEvents[0].presentationTimeSec >= 1);
+  assert.equal(negative.metrics.appliedPresentationOffsetMs, -100);
+});
+
+test('presentation queue clears on reset, configuration change, and prerecorded source switching', async () => {
+  const analyzer = analyzerHarness({ latency: 'manual-offset', manualOffsetMs: 100 });
+  const enqueue = () => analyzer.handleAnalysisMessage({ type: 'frames', frames: [transientFrame()], processingMs: null, blockSize: 128 });
+  enqueue();
+  analyzer.reset();
+  assert.equal(analyzer.presentationQueue.debugState().depth, 0);
+  enqueue();
+  analyzer.setConfig({ rhythm: 'interval-median' }, { persist: false });
+  assert.equal(analyzer.presentationQueue.debugState().depth, 0);
+  enqueue();
+  analyzer.decodedBuffer = {};
+  analyzer.disconnectSource = () => {};
+  analyzer.ctx.createBufferSource = () => ({ buffer: null, connect() {}, start() {} });
+  analyzer.gainNode = {};
+  analyzer.monitorGain = { gain: { value: 0 } };
+  await analyzer.replayFile();
+  assert.equal(analyzer.presentationQueue.debugState().depth, 0);
+});
+
+test('legacy transient flags are one-render-update pulses even when no later analysis frame arrives', () => {
+  const analyzer = analyzerHarness();
+  analyzer.handleAnalysisMessage({ type: 'frames', frames: [transientFrame()], processingMs: null, blockSize: 128 });
+  analyzer.update();
+  assert.equal(analyzer.metrics.isKick, true);
+  analyzer.ctx.currentTime += 1 / 60;
+  analyzer.update();
+  assert.equal(analyzer.metrics.isKick, false);
+  assert.equal(analyzer.metrics.isSnare, false);
 });

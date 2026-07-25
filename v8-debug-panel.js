@@ -1,4 +1,5 @@
 import { CONFIG_OPTIONS, PRESETS } from './v8-dsp/config.js';
+import { engineReloadUrl } from './v8-dsp/engine-selection.js';
 
 const LABELS = {
   analysis: 'Analysis backend', normalization: 'Normalization', classifier: 'Transient interpretation', rhythm: 'Rhythm mode',
@@ -13,14 +14,16 @@ export function installV8DebugPanel(engine) {
     #audio-v8-lab .grid{display:grid;grid-template-columns:1fr 1fr;gap:7px} #audio-v8-lab label{display:flex;flex-direction:column;gap:3px;color:#94a9b2}
     #audio-v8-lab select,#audio-v8-lab input,#audio-v8-lab button{font:inherit;color:#e9fbff;background:#111b25;border:1px solid #294454;border-radius:4px;padding:5px}
     #audio-v8-lab .presets{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0} #audio-v8-lab button{cursor:pointer} #audio-v8-lab button:hover{border-color:#41d9ff}
+    #audio-v8-lab .engine-reloads{display:flex;gap:6px;margin:7px 0 12px} #audio-v8-lab .section-label{margin:9px 0 4px;color:#64e5ff;font-weight:700}
     #audio-v8-lab pre{white-space:pre-wrap;background:#081018;border-radius:5px;padding:8px;margin:8px 0 0;color:#b7dce6;font-size:11px} #audio-v8-lab .close{float:right;border:0;background:none;font-size:16px;padding:0 3px}
     #audio-v8-lab .source{display:flex;gap:5px;align-items:center;margin-top:9px} #audio-v8-lab .source input{min-width:0;flex:1}
   `;
   document.head.appendChild(style);
   const panel = document.createElement('aside');
   panel.id = 'audio-v8-lab';
-  panel.innerHTML = `<button class="close" title="Close">×</button><h2>Audio Engine V8 Lab</h2><p>Toggle with <kbd>Shift+D</kbd>. Changes reset DSP state safely.</p><div class="grid"></div><div class="presets"></div><div class="source"><input type="file" accept="audio/*"><button data-action="replay">Replay file</button><button data-action="mic">Mic</button></div><pre data-role="status"></pre>`;
+  panel.innerHTML = `<button class="close" title="Close">×</button><h2>Audio Engine V8 Lab</h2><p>Toggle with <kbd>Shift+D</kbd>.</p><div class="section-label">Top-level engine (page reload)</div><div class="engine-reloads"><button data-engine="v7">Actual V7 (reload)</button><button data-engine="v8">Actual V8 (reload)</button></div><div class="section-label">Live V8 subsystem switching</div><p>Controls and presets below reset V8 DSP state without changing the loaded engine module.</p><div class="grid"></div><div class="presets"></div><div class="source"><input type="file" accept="audio/*"><button data-action="replay">Replay file</button><button data-action="mic">Mic</button></div><pre data-role="status"></pre>`;
   document.body.appendChild(panel);
+  for (const button of panel.querySelectorAll('[data-engine]')) button.addEventListener('click', () => location.assign(engineReloadUrl(location.href, button.dataset.engine)));
   const grid = panel.querySelector('.grid');
   for (const [key, options] of Object.entries(CONFIG_OPTIONS)) {
     const label = document.createElement('label');
@@ -66,6 +69,7 @@ export function installV8DebugPanel(engine) {
       `rhythm ${m.bpm || '--'} BPM  conf ${fmt(m.rhythmConfidence)}  phase ${fmt(m.beatPhase)}`,
       state.processingClockAvailable ? `processing mean ${fmt(m.analysisProcessingMeanMs, 3)} ms  p95 ${fmt(m.analysisProcessingP95Ms, 3)} ms / 128` : 'processing timing unavailable in this AudioWorkletGlobalScope',
       `latency base ${fmt(state.latency.baseLatency * 1000, 1)} ms  output ${fmt(state.latency.outputLatency * 1000, 1)} ms  applied ${fmt(state.latency.appliedMs, 1)} ms`,
+      `presentation queue ${state.presentation.depth}  oldest lateness ${fmt(state.presentation.oldestFrameLatenessMs, 1)} ms`,
       `events ${state.recentEvents.slice(0, 6).map((event) => `${event.band}@${event.timeSec.toFixed(3)}`).join('  ') || 'none'}`,
       state.fallback ? `FALLBACK: ${state.fallback}` : 'fallback: none',
       state.error ? `ERROR: ${state.error}` : 'error: none'

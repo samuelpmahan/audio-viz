@@ -3,7 +3,7 @@ import { browserConfig, persistConfig, validateConfig } from './v8-dsp/config.js
 import { LevelNormalizer } from './v8-dsp/normalization.js';
 import { TransientInterpreter } from './v8-dsp/transients.js';
 import { RhythmTracker } from './v8-dsp/rhythm.js';
-import { ModulationClock, presentationOffset } from './v8-dsp/presentation.js';
+import { ModulationClock, PresentationQueue, presentationOffset } from './v8-dsp/presentation.js';
 import { createEmptyMetrics, MetricsAdapter } from './v8-dsp/metrics-adapter.js';
 
 function p95(values) {
@@ -33,13 +33,13 @@ export class AudioAnalyzer {
     this.modulation = new ModulationClock();
     this.adapter = new MetricsAdapter();
     this.metrics = createEmptyMetrics();
-    this.pendingFrames = [];
+    this.presentationQueue = new PresentationQueue();
     this.processingTimes = [];
     this.sourceNode = null;
     this.sourceKind = null;
     this.decodedBuffer = null;
     this.isInit = false;
-    this.status = { processingMode: 'not-started', fallback: null, error: null };
+    this.status = { processingMode: 'not-started', fallback: null, error: null, awaitingAnalysisReset: false };
     this.listeners = new Set();
   }
 
@@ -84,9 +84,15 @@ export class AudioAnalyzer {
 
   handleAnalysisMessage(message) {
     if (message.type === 'ready') this.status.workletReady = true;
+    if (message.type === 'reset') {
+      this.presentationQueue.clear();
+      this.status.awaitingAnalysisReset = false;
+    }
     if (message.type === 'processor-exception') this.status.error = `AudioWorklet: ${message.message}`;
     if (message.type === 'frames') {
-      this.pendingFrames.push(...message.frames);
+      if (this.status.awaitingAnalysisReset) return;
+      const offset = presentationOffset(this.ctx, this.config.latency, this.config.manualOffsetMs);
+      this.presentationQueue.enqueue(message.frames, offset, this.ctx.currentTime);
       if (Number.isFinite(message.processingMs)) this.processingTimes.push(message.processingMs * 128 / message.blockSize);
       if (message.processingClockAvailable === false) this.status.processingClockUnavailable = true;
       if (this.processingTimes.length > 600) this.processingTimes.shift();
@@ -106,13 +112,13 @@ export class AudioAnalyzer {
 
   async useMicrophone() {
     this.disconnectSource();
+    this.reset();
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     this.mediaStream = stream;
     this.sourceNode = this.ctx.createMediaStreamSource(stream);
     this.sourceNode.connect(this.gainNode);
     this.sourceKind = 'microphone';
     this.monitorGain.gain.value = 0;
-    this.reset();
   }
 
   async loadAudioFile(file) {
@@ -124,13 +130,13 @@ export class AudioAnalyzer {
   async replayFile() {
     if (!this.decodedBuffer) throw new Error('No local audio file has been loaded');
     this.disconnectSource();
+    this.reset();
     this.sourceNode = this.ctx.createBufferSource();
     this.sourceNode.buffer = this.decodedBuffer;
     this.sourceNode.connect(this.gainNode);
     this.sourceNode.start();
     this.sourceKind = 'local-file';
     this.monitorGain.gain.value = 1;
-    this.reset();
   }
 
   setGain(value) { this.gainNode.gain.value = value; }
@@ -142,47 +148,59 @@ export class AudioAnalyzer {
     const previous = this.config;
     this.config = validateConfig({ ...this.config, ...patch });
     if (persist) persistConfig(this.config);
-    if (previous.analysis !== this.config.analysis) {
-      if (this.status.processingMode === 'AudioWorklet') this.analysisNode?.port.postMessage({ type: 'configure', config: this.config });
-      else this.fallbackCore?.configure(this.config);
+    if (this.status.processingMode === 'AudioWorklet') {
+      this.status.awaitingAnalysisReset = true;
+      this.analysisNode?.port.postMessage(previous.analysis !== this.config.analysis ? { type: 'configure', config: this.config } : { type: 'reset' });
+    } else if (previous.analysis !== this.config.analysis) {
+      this.fallbackCore?.configure(this.config);
+    } else {
+      this.fallbackCore?.reset();
+      this.fallbackSample = 0;
     }
     this.normalizer.configure(this.config.normalization);
     this.interpreter.configure(this.config.classifier);
     this.rhythm.configure(this.config.rhythm);
     this.modulation.reset();
     this.adapter.reset();
-    this.pendingFrames.length = 0;
+    this.metrics = this.adapter.metrics;
+    this.presentationQueue.clear();
     for (const listener of this.listeners) listener(this.config);
     return this.config;
   }
 
   reset() {
-    this.pendingFrames.length = 0;
+    this.presentationQueue.clear();
     this.processingTimes.length = 0;
     this.normalizer.reset();
     this.interpreter.reset();
     this.rhythm.reset();
     this.modulation.reset();
     this.adapter.reset();
-    if (this.status.processingMode === 'AudioWorklet') this.analysisNode?.port.postMessage({ type: 'reset' });
+    this.metrics = this.adapter.metrics;
+    if (this.status.processingMode === 'AudioWorklet') {
+      this.status.awaitingAnalysisReset = true;
+      this.analysisNode?.port.postMessage({ type: 'reset' });
+    }
     else { this.fallbackCore?.reset(); this.fallbackSample = 0; }
   }
 
   update() {
+    this.metrics.isKick = false;
+    this.metrics.isSnare = false;
     if (!this.isInit) return;
     this.analyser.getByteFrequencyData(this.dataArray);
-    const offset = presentationOffset(this.ctx, this.config.latency, this.config.manualOffsetMs);
     let sawKick = false;
     let sawSnare = false;
-    while (this.pendingFrames.length) {
-      const frame = this.pendingFrames.shift();
+    for (const scheduled of this.presentationQueue.release(this.ctx.currentTime)) {
+      const frame = scheduled.frame;
+      const effectiveOffset = scheduled.releaseTimeSec - frame.timeSec;
       const levels = this.normalizer.process({ ...frame.bands, overall: frame.rms });
       const interpretation = this.interpreter.process(frame);
-      for (const event of interpretation.events) if (event.band === 'low' || event.band === 'high') this.rhythm.addOnset(event.timeSec, event.score);
-      const rhythm = this.rhythm.update(frame.timeSec + offset);
-      const modulation = this.modulation.update(frame.timeSec + offset, rhythm, this.config);
+      for (const event of interpretation.events) if (event.band === 'low' || event.band === 'high') this.rhythm.addOnset(event.timeSec + effectiveOffset, event.score);
+      const rhythm = this.rhythm.update(scheduled.releaseTimeSec);
+      const modulation = this.modulation.update(scheduled.releaseTimeSec, rhythm, this.config);
       const meanMs = this.processingTimes.length ? this.processingTimes.reduce((sum, value) => sum + value, 0) / this.processingTimes.length : 0;
-      this.metrics = this.adapter.update({ frame, levels, interpretation, rhythm, modulation, timeSec: frame.timeSec + offset, presentationOffsetSec: offset, config: this.config, processing: { meanMs, p95Ms: p95(this.processingTimes) } });
+      this.metrics = this.adapter.update({ frame, levels, interpretation, rhythm, modulation, timeSec: scheduled.releaseTimeSec, presentationOffsetSec: effectiveOffset, appliedOffsetSec: scheduled.requestedOffsetSec, config: this.config, processing: { meanMs, p95Ms: p95(this.processingTimes) } });
       sawKick ||= this.metrics.isKick;
       sawSnare ||= this.metrics.isSnare;
     }
@@ -191,6 +209,7 @@ export class AudioAnalyzer {
   }
 
   getDebugState() {
+    const appliedOffsetSec = presentationOffset(this.ctx, this.config.latency, this.config.manualOffsetMs);
     return {
       config: this.config,
       sampleRate: this.ctx.sampleRate,
@@ -198,7 +217,8 @@ export class AudioAnalyzer {
       processingClockAvailable: !this.status.processingClockUnavailable,
       workletReady: Boolean(this.status.workletReady),
       sourceKind: this.sourceKind,
-      latency: { baseLatency: this.ctx.baseLatency ?? null, outputLatency: this.ctx.outputLatency ?? null, appliedMs: this.metrics.appliedPresentationOffsetMs ?? 0 },
+      latency: { baseLatency: this.ctx.baseLatency ?? null, outputLatency: this.ctx.outputLatency ?? null, appliedMs: appliedOffsetSec * 1000 },
+      presentation: this.presentationQueue.debugState(),
       metrics: this.metrics,
       recentEvents: this.adapter.recentEvents,
       fallback: this.status.fallback,

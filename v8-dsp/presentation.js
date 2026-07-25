@@ -11,6 +11,42 @@ export function presentationOffset(context, mode, manualOffsetMs = 0) {
   return 0;
 }
 
+export class PresentationQueue {
+  constructor() { this.clear(); }
+
+  clear() {
+    this.entries = [];
+    this.lastOldestFrameLatenessMs = 0;
+  }
+
+  enqueue(frames, offsetSec, availableTimeSec) {
+    for (const frame of frames) {
+      const presentationTimeSec = frame.timeSec + offsetSec;
+      this.entries.push({
+        frame,
+        requestedOffsetSec: offsetSec,
+        presentationTimeSec,
+        releaseTimeSec: Math.max(presentationTimeSec, availableTimeSec)
+      });
+    }
+    this.entries.sort((left, right) => left.releaseTimeSec - right.releaseTimeSec || left.frame.frameEndSample - right.frame.frameEndSample);
+  }
+
+  release(currentTimeSec) {
+    let count = 0;
+    while (count < this.entries.length && this.entries[count].releaseTimeSec <= currentTimeSec) count += 1;
+    this.lastOldestFrameLatenessMs = count ? Math.max(0, (currentTimeSec - this.entries[0].releaseTimeSec) * 1000) : 0;
+    return count ? this.entries.splice(0, count) : [];
+  }
+
+  debugState() {
+    return {
+      depth: this.entries.length,
+      oldestFrameLatenessMs: this.lastOldestFrameLatenessMs
+    };
+  }
+}
+
 export class ModulationClock {
   constructor() { this.reset(); }
   reset() { this.phase = 0; this.lastTimeSec = null; this.heldBpm = 0; }

@@ -1,6 +1,6 @@
 # Audio Engine V8 Lab
 
-V8 is an experimental, removable pipeline beside the unchanged `audio-engine-v7.js`. The normal URL still loads V7. Add `?engine=v8` to load V8; add `&debug=1` or press **Shift+D** to show the lab panel.
+V8 is an experimental, removable pipeline beside the unchanged `audio-engine-v7.js`. The normal URL and `?engine=v7` load actual V7. Only an explicit `?engine=v8` loads V8; persisted V8 subsystem settings never select the top-level module. Add `&debug=1` or press **Shift+D** to show the lab panel.
 
 ## Run
 
@@ -22,7 +22,7 @@ Example fully specified configuration:
 ?engine=v8&analysis=worklet-robust&normalization=fast-slow-envelope&classifier=band-dominance&rhythm=phase-follower&lfoClock=phase-follower&latency=base-latency
 ```
 
-Query parameters override `audioViz.v8.config` in `localStorage`. Invalid values fall back independently. `offset` selects the manual timing offset in milliseconds and `bpm` selects fixed BPM.
+V8 subsystem query parameters override `audioViz.v8.config` in `localStorage`. Invalid values fall back independently. `offset` selects the manual timing offset in milliseconds and `bpm` selects fixed BPM. The top-level `engine` choice is deliberately excluded from persisted state.
 
 ## Pipeline and modes
 
@@ -37,7 +37,9 @@ The independently switchable stages are:
 - modulation clock: `v7-bpm`, `phase-follower`, `fixed`, `free-running`, `disabled`;
 - timing: `none`, `base-latency`, `output-latency`, `manual-offset`.
 
-The V7 preset inside the lab is a dependency-free worklet approximation for live A/B switching. `?engine=v7` remains the literal unchanged V7 runtime control.
+The `V7-shaped worklet baseline` preset is a dependency-free approximation for live V8 subsystem comparisons. It is not actual V7. Use the panel's **Actual V7 (reload)** and **Actual V8 (reload)** controls—or the explicit URL parameters—to change top-level modules. Those reload controls are labeled separately from live V8 subsystem switching.
+
+Presentation compensation uses an audio-clock queue. A frame is passed to normalization, transient interpretation, rhythm, modulation, and the metrics adapter only after `frame.timeSec + selectedOffsetSec` has arrived. Negative offsets release as soon as the already-analyzed frame is available and never predict future analysis. Reset, configuration changes, and source changes clear the queue. Queue depth and oldest-frame lateness are visible in the debug state.
 
 Low/high events are signal-domain transient labels, not semantic drum classification. Only the compatibility adapter maps low to `isKick` and high to `isSnare`.
 
@@ -48,7 +50,7 @@ Low/high events are signal-domain transient labels, not semantic drum classifica
 - `low-latency` — 512/128 global flux with the shortest refractory period.
 - `high-precision` — robust-percentile movement and output-latency compensation where supported.
 - `minimal DSP` — global flux, raw levels, no rhythm or modulation.
-- `V7 baseline` — compatibility settings.
+- `V7-shaped worklet baseline` — live compatibility-shaped V8 settings, not actual V7.
 
 Latency compensation is deliberately a comparison variable. `outputLatency` is not available on every browser/device and manual offset is clamped to ±500 ms.
 

@@ -18,7 +18,7 @@ export class MetricsAdapter {
     this.recentEvents = [];
   }
 
-  update({ frame, levels, interpretation, rhythm, modulation, timeSec, presentationOffsetSec, config, processing }) {
+  update({ frame, levels, interpretation, rhythm, modulation, timeSec, presentationOffsetSec, appliedOffsetSec = presentationOffsetSec, config, processing }) {
     const delta = Math.max(0, timeSec - (this.previousTimeSec ?? timeSec));
     this.previousTimeSec = timeSec;
     this.metrics.isKick = false;
@@ -26,10 +26,11 @@ export class MetricsAdapter {
     for (const band of ['low', 'mid', 'high']) this.hit[band] *= Math.exp(-delta / 0.095);
     for (const event of interpretation.events) {
       this.hit[event.band] = 1;
-      this.lastEventSec[event.band] = event.timeSec + presentationOffsetSec;
+      const eventPresentationTimeSec = Math.max(timeSec, event.timeSec + presentationOffsetSec);
+      this.lastEventSec[event.band] = eventPresentationTimeSec;
       if (event.band === 'low') this.metrics.isKick = true;
       if (event.band === 'high') this.metrics.isSnare = true;
-      this.recentEvents.unshift({ ...event, presentationTimeSec: event.timeSec + presentationOffsetSec });
+      this.recentEvents.unshift({ ...event, presentationTimeSec: eventPresentationTimeSec });
     }
     this.recentEvents = this.recentEvents.filter((event) => timeSec - event.timeSec < 4).slice(0, 16);
     for (const band of ['low', 'mid', 'high']) this.presence[band] += ((band === 'low' ? levels.bass : band === 'mid' ? levels.mid : levels.treble) - this.presence[band]) * (1 - Math.exp(-delta / 2.8));
@@ -50,7 +51,7 @@ export class MetricsAdapter {
       highTransient: interpretation.probability.high,
       rhythmConfidence: rhythm.confidence,
       normalizedLevel: levels.vol,
-      appliedPresentationOffsetMs: presentationOffsetSec * 1000,
+      appliedPresentationOffsetMs: appliedOffsetSec * 1000,
       activeEngineConfiguration: { ...config },
       analysisProcessingMeanMs: processing.meanMs,
       analysisProcessingP95Ms: processing.p95Ms

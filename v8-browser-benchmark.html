@@ -55,7 +55,7 @@
           audioQuantumMs: quantumMs, observedWorkletOverruns: state.processingClockAvailable ? (state.metrics.analysisProcessingP95Ms > quantumMs ? 'p95 exceeds quantum' : 0) : 'not directly observable',
           droppedBlocks: 'Web Audio does not expose dropped-block counts; no engine errors were observed',
           memory: { supported: Boolean(performance.memory), startBytes: memoryStart, endBytes: performance.memory?.usedJSHeapSize ?? null },
-          configurationSwitches: switches, switchErrors: errors, workletReady: state.workletReady, engineError: state.error, latencySupport: state.latency, fallback: state.fallback
+          configurationSwitches: switches, switchErrors: errors, workletReady: state.workletReady, engineError: state.error, latencySupport: state.latency, presentationQueue: state.presentation, fallback: state.fallback
         };
         resultNode.textContent = JSON.stringify(report, null, 2); resultNode.dataset.complete = 'true'; window.__audioV8Benchmark = report;
       };
