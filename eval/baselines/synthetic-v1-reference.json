@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "datasetManifestVersion": "synthetic-v1",
+  "sampleRates": [44100, 48000],
+  "seed": 4281946,
+  "executionBlockSize": 128,
+  "notes": "Deterministic accuracy reference from npm run benchmark:synthetic. Runtime is intentionally excluded as environment-dependent.",
+  "baselines": [
+    {
+      "id": "current-baseline",
+      "version": "1.0.0",
+      "onset25ms": { "precision": 0.3870967741935484, "recall": 0.7, "f1": 0.49851632047477745 },
+      "onset50ms": { "precision": 0.3870967741935484, "recall": 0.7, "f1": 0.49851632047477745, "falsePositivesPerMinute": 106.68405759265872, "medianAbsoluteTimingErrorMs": 1.8958333333323196, "p95AbsoluteTimingErrorMs": 14.231009070293474, "signedTimingBiasMs": 2.687876241766114 },
+      "macroClassF1": 0.4729509935648115
+    },
+    {
+      "id": "spectral-flux-baseline",
+      "version": "1.0.0",
+      "onset25ms": { "precision": 0.6198347107438017, "recall": 0.625, "f1": 0.6224066390041494 },
+      "onset50ms": { "precision": 0.6198347107438017, "recall": 0.625, "f1": 0.6224066390041494, "falsePositivesPerMinute": 36.898245483175195, "medianAbsoluteTimingErrorMs": 1.2698412698419759, "p95AbsoluteTimingErrorMs": 2.9375000000015916, "signedTimingBiasMs": 1.2287622826906623 },
+      "macroClassF1": 0.5727436323366556
+    },
+    {
+      "id": "multiband-energy-baseline",
+      "version": "1.0.0",
+      "onset25ms": { "precision": 0.21256931608133087, "recall": 0.9583333333333334, "f1": 0.34795763993948564 },
+      "onset50ms": { "precision": 0.22181146025878004, "recall": 1, "f1": 0.3630862329803329, "falsePositivesPerMinute": 337.69915974819037, "medianAbsoluteTimingErrorMs": 1.3124999999973852, "p95AbsoluteTimingErrorMs": 32.044217687080405, "signedTimingBiasMs": -0.6658907312928249 },
+      "macroClassF1": 0.2913418213771571
+    },
+    {
+      "id": "meyda-feature-baseline",
+      "version": "1.0.0",
+      "onset25ms": { "precision": 0.39543726235741444, "recall": 0.8666666666666667, "f1": 0.5430809399477806 },
+      "onset50ms": { "precision": 0.39543726235741444, "recall": 0.8666666666666667, "f1": 0.5430809399477806, "falsePositivesPerMinute": 127.53958764836644, "medianAbsoluteTimingErrorMs": 1.2807539682508917, "p95AbsoluteTimingErrorMs": 4.4210034013570265, "signedTimingBiasMs": 1.619891145560296 },
+      "macroClassF1": 0.5813966735019367
+    }
+  ]
+}

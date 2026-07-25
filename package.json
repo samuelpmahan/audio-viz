@@ -1,0 +1,16 @@
+{
+  "name": "audio-viz",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "benchmark": "node eval/cli.js",
+    "benchmark:smoke": "node eval/cli.js --suite smoke",
+    "benchmark:synthetic": "node eval/cli.js --suite synthetic",
+    "benchmark:browser": "node eval/cli.js --suite synthetic --mode browser"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

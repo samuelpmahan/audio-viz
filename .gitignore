@@ -1,0 +1,14 @@
+node_modules/
+runs/
+.DS_Store
+*.log
+
+# External evaluation audio must never be committed.
+/data/
+/datasets/
+/eval-data/
+*.wav
+*.flac
+*.mp3
+*.aiff
+*.aif
