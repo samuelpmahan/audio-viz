@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Audio V8 Browser Benchmark</title><style>body{background:#081018;color:#c9f6ff;font:14px ui-monospace,monospace;padding:24px}button{padding:10px 16px}pre{white-space:pre-wrap;line-height:1.5}</style></head>
+<body>
+  <h1>Audio Engine V8 Browser Benchmark</h1>
+  <p>Runs a deterministic generated signal locally. No microphone or network audio is used.</p>
+  <button id="run">Run 10-second benchmark</button>
+  <pre id="result">idle</pre>
+  <script type="module">
+    import { AudioAnalyzer } from './audio-engine-v8.js';
+    import { PRESETS } from './v8-dsp/config.js';
+    const runButton = document.getElementById('run');
+    const resultNode = document.getElementById('result');
+    resultNode.textContent = 'ready';
+    runButton.addEventListener('click', async () => {
+      runButton.disabled = true;
+      const engine = new AudioAnalyzer({ analysis: 'worklet-robust', normalization: 'fast-slow-envelope', classifier: 'band-dominance', rhythm: 'phase-follower' });
+      await engine.init({ source: 'generated' });
+      const durationSec = 10;
+      const buffer = engine.ctx.createBuffer(1, engine.ctx.sampleRate * durationSec, engine.ctx.sampleRate);
+      const samples = buffer.getChannelData(0);
+      for (let index = 0; index < samples.length; index += 1) {
+        const time = index / engine.ctx.sampleRate;
+        const beat = time % 0.5;
+        const envelope = beat < 0.06 ? Math.exp(-beat * 55) : 0;
+        samples[index] = envelope * (0.55 * Math.sin(2 * Math.PI * 90 * time) + 0.18 * Math.sin(2 * Math.PI * 4300 * time));
+      }
+      const source = engine.ctx.createBufferSource(); source.buffer = buffer; source.connect(engine.gainNode); engine.sourceNode = source; engine.sourceKind = 'generated-benchmark';
+      const frameDurations = []; const errors = []; const switches = []; const longTasks = [];
+      const observer = typeof PerformanceObserver === 'function' ? new PerformanceObserver((list) => longTasks.push(...list.getEntries().map((entry) => entry.duration))) : null;
+      try { observer?.observe({ type: 'longtask', buffered: true }); } catch { /* not supported */ }
+      const memoryStart = performance.memory?.usedJSHeapSize ?? null;
+      const presetNames = ['low-latency', 'high-precision', 'expressive', 'rhythm-heavy', 'minimal DSP'];
+      let previousFrame = performance.now(); let presetIndex = 0; const started = performance.now(); source.start();
+      const loop = () => {
+        const now = performance.now(); frameDurations.push(now - previousFrame); previousFrame = now;
+        try { engine.update(); } catch (error) { errors.push(error.message); }
+        const elapsed = (now - started) / 1000;
+        if (presetIndex < presetNames.length && elapsed >= 1.5 + presetIndex * 1.25) {
+          const name = presetNames[presetIndex++];
+          try { engine.setConfig(PRESETS[name], { persist: false }); switches.push({ name, atSec: elapsed }); } catch (error) { errors.push(`switch ${name}: ${error.message}`); }
+        }
+        if (elapsed < durationSec) requestAnimationFrame(loop);
+        else finish();
+      };
+      const finish = () => {
+        observer?.disconnect(); engine.update();
+        const sortedFrames = frameDurations.slice(1).sort((a,b) => a-b); const state = engine.getDebugState(); const quantumMs = 128 / engine.ctx.sampleRate * 1000;
+        const report = {
+          measuredAt: new Date().toISOString(), userAgent: navigator.userAgent, durationSec, sampleRate: state.sampleRate, processingMode: state.processingMode,
+          processingMeanMsPer128Block: state.processingClockAvailable ? state.metrics.analysisProcessingMeanMs : null,
+          processingP95MsPer128Block: state.processingClockAvailable ? state.metrics.analysisProcessingP95Ms : null,
+          processingTimingNote: state.processingClockAvailable ? 'Measured inside AudioWorkletGlobalScope' : 'Unavailable: this AudioWorkletGlobalScope exposes no high-resolution wall clock',
+          renderFrameP95Ms: sortedFrames[Math.floor(sortedFrames.length * 0.95)] ?? 0, longTaskCount: longTasks.length, longTaskTotalMs: longTasks.reduce((sum,value)=>sum+value,0),
+          audioQuantumMs: quantumMs, observedWorkletOverruns: state.processingClockAvailable ? (state.metrics.analysisProcessingP95Ms > quantumMs ? 'p95 exceeds quantum' : 0) : 'not directly observable',
+          droppedBlocks: 'Web Audio does not expose dropped-block counts; no engine errors were observed',
+          memory: { supported: Boolean(performance.memory), startBytes: memoryStart, endBytes: performance.memory?.usedJSHeapSize ?? null },
+          configurationSwitches: switches, switchErrors: errors, workletReady: state.workletReady, engineError: state.error, latencySupport: state.latency, fallback: state.fallback
+        };
+        resultNode.textContent = JSON.stringify(report, null, 2); resultNode.dataset.complete = 'true'; window.__audioV8Benchmark = report;
+      };
+      requestAnimationFrame(loop);
+    });
+  </script>
+</body></html>

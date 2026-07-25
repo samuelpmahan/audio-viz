@@ -1,0 +1,32 @@
+{
+  "measuredAt": "2026-07-25T20:59:55.231Z",
+  "environment": "Chromium 150.0.0.0 on macOS, Codex in-app browser",
+  "durationSec": 10,
+  "sampleRate": 48000,
+  "processingMode": "AudioWorklet",
+  "processingMeanMsPer128Block": null,
+  "processingP95MsPer128Block": null,
+  "processingTimingNote": "Unavailable: AudioWorkletGlobalScope exposed no high-resolution wall clock; Node directional timings are reported separately.",
+  "renderFrameP95Ms": 18.6,
+  "longTaskCount": 0,
+  "longTaskTotalMs": 0,
+  "audioQuantumMs": 2.6667,
+  "observedWorkletOverruns": "not directly observable",
+  "droppedBlocks": "Web Audio did not expose dropped-block counts; no engine or switch errors were observed",
+  "memory": {
+    "api": "performance.memory",
+    "startBytes": 12428723,
+    "endBytes": 11314704,
+    "interpretation": "No growth in this short run; GC makes two-point heap readings directional."
+  },
+  "configurationSwitches": ["low-latency", "high-precision", "expressive", "rhythm-heavy", "minimal DSP"],
+  "switchErrors": [],
+  "workletReady": true,
+  "engineError": null,
+  "latencySupport": {
+    "baseLatencyMs": 5.3333,
+    "outputLatencyMs": 32
+  },
+  "fallback": null,
+  "scope": "One Chromium/macOS run only; no Safari, Firefox, mobile, or low-end-device claim."
+}

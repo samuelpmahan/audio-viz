@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { baselineDetectors, detectorIds } from './detectors/index.js';
+import { baselineDetectors, v8Detectors, detectorIds } from './detectors/index.js';
 import { generateSyntheticFixtures, SYNTHETIC_MANIFEST_VERSION, SYNTHETIC_SEED } from './synthetic/generator.js';
 import { generateSplits } from './datasets/splits.js';
 import { evaluateDetector } from './evaluate.js';
@@ -31,7 +31,7 @@ async function main() {
   if (!['smoke', 'synthetic'].includes(options.suite)) throw new Error('Only smoke and synthetic suites require no external corpus');
   const fixtures = generateSyntheticFixtures({ smoke: options.suite === 'smoke' });
   const split = generateSplits(fixtures);
-  const ids = options.detector ? [options.detector] : baselineDetectors.map((Detector) => Detector.id);
+  const ids = options.detector ? [options.detector] : [...baselineDetectors, ...v8Detectors].map((Detector) => Detector.id);
   const table = [];
   for (const detectorId of ids) {
     const evaluation = await evaluateDetector({ detectorId, fixtures, mode: options.mode, compareModes: options.compareModes });

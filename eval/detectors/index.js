@@ -1,7 +1,8 @@
 import { baselineDetectors } from './baselines.js';
 import { adversarialDetectors } from './adversarial.js';
+import { v8Detectors } from './v8.js';
 
-const detectorTypes = [...baselineDetectors, ...adversarialDetectors];
+const detectorTypes = [...baselineDetectors, ...v8Detectors, ...adversarialDetectors];
 
 export function detectorIds() {
   return detectorTypes.map((Detector) => Detector.id);
@@ -15,4 +16,4 @@ export function createDetector(id, config = {}) {
   return { detector, descriptor: { id: Detector.id, version: Detector.version, config: detector.config } };
 }
 
-export { baselineDetectors, adversarialDetectors };
+export { baselineDetectors, v8Detectors, adversarialDetectors };
